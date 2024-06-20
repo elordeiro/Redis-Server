@@ -14,6 +14,7 @@ const (
 	INTEGER = ':'
 	BULK    = '$'
 	ARRAY   = '*'
+	NULL    = '_'
 	CRLF    = "\r\n"
 )
 
