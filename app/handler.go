@@ -1,8 +1,10 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 func okResp() *RESP {
@@ -37,8 +39,21 @@ var SETs = map[string]string{}
 var SETsMu = sync.RWMutex{}
 
 func set(args []*RESP) *RESP {
-	if len(args) != 2 {
+	if !(len(args) == 2 || len(args) == 4) {
 		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'set' command"}
+	}
+
+	var length int
+	if len(args) > 2 {
+		if strings.ToLower(args[2].Value) != "px" {
+			return &RESP{Type: ERROR, Value: "ERR syntax error"}
+		}
+
+		l, err := strconv.Atoi(args[3].Value)
+		if err != nil {
+			return &RESP{Type: ERROR, Value: "ERR value is not an integer or out of range"}
+		}
+		length = l
 	}
 
 	key, value := args[0].Value, args[1].Value
@@ -46,6 +61,14 @@ func set(args []*RESP) *RESP {
 	SETsMu.Lock()
 	SETs[key] = value
 	SETsMu.Unlock()
+
+	if length > 0 {
+		time.AfterFunc(time.Duration(length)*time.Millisecond, func() {
+			SETsMu.Lock()
+			delete(SETs, key)
+			SETsMu.Unlock()
+		})
+	}
 
 	return okResp()
 }
