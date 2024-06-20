@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"os"
 )
@@ -43,18 +42,18 @@ func (s *Server) serverClose() {
 
 func (s *Server) handleConnection(conn net.Conn) {
 	for {
-		buf := make([]byte, 1024)
+		resp := NewBuffer(conn)
 
-		_, err := conn.Read(buf)
+		parsedResp, err := resp.Read()
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			fmt.Println("error reading from client: ", err.Error())
-			os.Exit(1)
+			fmt.Println(err)
+			fmt.Println("Closing")
+			return
 		}
 
-		conn.Write([]byte("+PONG\r\n"))
+		result := Handler(parsedResp)
+		writer := NewWriter(conn)
+		writer.Write(result)
 	}
 }
 
