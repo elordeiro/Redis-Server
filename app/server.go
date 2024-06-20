@@ -11,8 +11,8 @@ type Server struct {
 	Conn     []net.Conn
 }
 
-func NewServer() (*Server, error) {
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
+func NewServer(address string) (*Server, error) {
+	l, err := net.Listen("tcp", "0.0.0.0:"+address)
 	if err != nil {
 		fmt.Println("Failed to bind to port 6379")
 		return nil, err
@@ -57,14 +57,31 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 }
 
+func getCommandLineArgs() (string, error) {
+	if len(os.Args) == 1 {
+		return "6379", nil
+	}
+	if args := os.Args[1]; args != "--port" {
+		return "", fmt.Errorf("invalid argument: %s", args)
+	}
+	return os.Args[2], nil
+}
+
 func main() {
-	server, err := NewServer()
+	address, err := getCommandLineArgs()
+
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	server, err := NewServer(address)
 	if err != nil {
 		fmt.Println("Failed to create server")
 		os.Exit(1)
 	}
 
-	fmt.Println("listening on port 6379")
+	fmt.Println("listening on port: " + address + "...")
 
 	defer server.serverClose()
 
