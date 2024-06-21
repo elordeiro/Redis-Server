@@ -6,9 +6,33 @@ import (
 	"os"
 )
 
+const (
+	MASTER = iota
+	SLAVE
+)
+
+type serverType int
+
 type Server struct {
+	Type     serverType
 	Listener net.Listener
 	Conn     []net.Conn
+}
+
+// Globals --------------------------------------------------------------------
+var ThisServer Server
+
+// ----------------------------------------------------------------------------
+
+func (st serverType) String() string {
+	switch st {
+	case MASTER:
+		return "master"
+	case SLAVE:
+		return "slave"
+	default:
+		return "unknown"
+	}
 }
 
 func NewServer(address string) (*Server, error) {
@@ -17,9 +41,18 @@ func NewServer(address string) (*Server, error) {
 		fmt.Println("Failed to bind to port 6379")
 		return nil, err
 	}
+
+	var typ serverType
+	if address == "6379" {
+		typ = MASTER
+	} else {
+		typ = SLAVE
+	}
+
 	return &Server{
 		Listener: l,
 		Conn:     make([]net.Conn, 0),
+		Type:     typ,
 	}, nil
 }
 
@@ -75,7 +108,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	server, err := NewServer(address)
+	ThisServer, err := NewServer(address)
 	if err != nil {
 		fmt.Println("Failed to create server")
 		os.Exit(1)
@@ -83,9 +116,9 @@ func main() {
 
 	fmt.Println("listening on port: " + address + "...")
 
-	defer server.serverClose()
+	defer ThisServer.serverClose()
 
 	for {
-		server.serverAccept()
+		ThisServer.serverAccept()
 	}
 }

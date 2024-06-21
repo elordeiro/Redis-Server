@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// Predefined responses -------------------------------------------------------
 func okResp() *RESP {
 	return &RESP{Type: STRING, Value: "OK"}
 }
@@ -15,7 +16,10 @@ func nullResp() *RESP {
 	return &RESP{Type: NULL}
 }
 
-func commandFunc(args []*RESP) *RESP {
+// ----------------------------------------------------------------------------
+
+// Common commands -------------------------------------------------------------
+func commandFunc() *RESP {
 	return &RESP{Type: NULL, Value: "Command"}
 }
 
@@ -32,6 +36,23 @@ func echo(args []*RESP) *RESP {
 	}
 	return &RESP{Type: STRING, Value: args[0].Value}
 }
+
+func info(args []*RESP) *RESP {
+	if len(args) != 1 {
+		return nullResp()
+	}
+	switch args[0].Value {
+	case "replication":
+		return &RESP{
+			Type:  BULK,
+			Value: "role:" + ThisServer.Type.String(),
+		}
+	default:
+		return nullResp()
+	}
+}
+
+// ----------------------------------------------------------------------------
 
 // Get and Set function and storage -------------------------------------------
 
@@ -105,8 +126,10 @@ func handleArray(arr []*RESP) *RESP {
 		return set(args)
 	case "GET":
 		return get(args)
+	case "INFO":
+		return info(args)
 	case "COMMAND":
-		return commandFunc(args)
+		return commandFunc()
 	default:
 		return &RESP{Type: ERROR, Value: "Unknown command " + command}
 	}
