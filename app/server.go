@@ -20,6 +20,7 @@ type Server struct {
 	Role             serverType
 	Listener         net.Listener
 	Conn             []net.Conn
+	Port             string
 	MasterHost       string
 	MasterPort       string
 	MasterReplid     string
@@ -43,6 +44,32 @@ func (st serverType) String() string {
 	}
 }
 
+func (s *Server) handShake() {
+	conn, err := net.Dial("tcp", s.MasterHost+":"+s.MasterPort)
+	if err != nil {
+		fmt.Println("Failed to connect to master")
+		os.Exit(1)
+	}
+
+	writer := NewWriter(conn)
+	ping := &RESP{
+		Type: ARRAY,
+		Values: []*RESP{
+			{
+				Type: BULK, Value: "PING",
+			},
+		},
+	}
+	writer.Write(ping)
+
+	// resp := NewBuffer(conn)
+	// parsedResp, err := resp.Read()
+	// if err != nil {
+	// 	fmt.Println(err)
+	// 	os.Exit(1)
+	// }
+}
+
 func NewServer() (*Server, error) {
 	// Set server port number
 	port := "6379"
@@ -52,7 +79,7 @@ func NewServer() (*Server, error) {
 
 	l, err := net.Listen("tcp", "0.0.0.0:"+port)
 	if err != nil {
-		fmt.Println("Failed to bind to port 6379")
+		fmt.Println("Failed to bind to port " + port)
 		return nil, err
 	}
 
@@ -75,6 +102,7 @@ func NewServer() (*Server, error) {
 		Listener:         l,
 		Conn:             make([]net.Conn, 0),
 		Role:             role,
+		Port:             port,
 		MasterHost:       masterHost,
 		MasterPort:       masterPort,
 		MasterReplid:     replId.String(),
@@ -142,7 +170,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("listening on port: " + ThisServer.MasterPort + "...")
+	if ThisServer.Role == SLAVE {
+		ThisServer.handShake()
+	}
+
+	fmt.Println("listening on port: " + ThisServer.Port + "...")
 
 	defer ThisServer.serverClose()
 

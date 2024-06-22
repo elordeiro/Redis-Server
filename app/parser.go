@@ -177,7 +177,6 @@ func (resp *RESP) marshalArray() (bytes []byte) {
 
 	for i := range len {
 		bytes = append(bytes, resp.Values[i].Marshal()...)
-		bytes = append(bytes, CRLF...)
 	}
 
 	return bytes
