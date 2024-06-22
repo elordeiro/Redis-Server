@@ -67,36 +67,31 @@ func (s *Server) handShake() error {
 	}
 
 	// Stage 2
-	// resp = NewBuffer(conn)
-	// writer = NewWriter(conn)
 	writer.Write(ReplconfResp(1))
-	// parsedResp, err = resp.Read()
-	// if err != nil {
-	// 	return err
-	// }
-	// if !parsedResp.IsOkay() {
-	// 	return errors.New("master server did not respond with OK")
-	// }
-
-	// resp = NewBuffer(conn)
-	// writer = NewWriter(conn)
-	writer.Write(ReplconfResp(2))
-	// parsedResp, err = resp.Read()
-	// if err != nil {
-	// 	return err
-	// }
-	// if !parsedResp.IsOkay() {
-	// 	return errors.New("master server did not respond with OK")
-	// }
-	temp := Psync(0, 0)
-	fmt.Println("Sendind PSYNC command")
-	writer.Write(temp)
-	fmt.Println("Sent PSYNC command")
-	resp = NewBuffer(conn)
-	parsedResp, _ = resp.Read()
-	if strings.Contains(parsedResp.Value, "FULLRESYNC") {
-		fmt.Println("Got FULLRESYNC response")
+	parsedResp, err = resp.Read()
+	if err != nil {
+		return err
 	}
+	if !parsedResp.IsOkay() {
+		return errors.New("master server did not respond with OK")
+	}
+
+	writer.Write(ReplconfResp(2))
+	parsedResp, err = resp.Read()
+	if err != nil {
+		return err
+	}
+	if !parsedResp.IsOkay() {
+		return errors.New("master server did not respond with OK")
+	}
+
+	// Stage 3
+	writer.Write(Psync(0, 0))
+	_, err = resp.Read()
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -203,7 +198,7 @@ func main() {
 	if ThisServer.Role == SLAVE {
 		err := ThisServer.handShake()
 		if err != nil {
-			fmt.Errorf("Failed to connect to master server")
+			_ = fmt.Errorf("failed to connect to master server")
 			os.Exit(1)
 		}
 	}

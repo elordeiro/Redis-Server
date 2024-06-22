@@ -147,7 +147,10 @@ func replConfig(args []*RESP) *RESP {
 
 // TODO
 func psync(args []*RESP) *RESP {
-	return OkResp()
+	return &RESP{
+		Type:  STRING,
+		Value: "FULLRESYNC <REPL_ID> 0",
+	}
 }
 
 // ----------------------------------------------------------------------------
