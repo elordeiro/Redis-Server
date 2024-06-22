@@ -46,7 +46,10 @@ func info(args []*RESP) *RESP {
 		return &RESP{
 			Type: BULK,
 			// Value: "role:" + ThisServer.Type.String(),
-			Value: "role:" + ThisServer.Role.String() + "\n",
+			Value: "# Replication\n" +
+				"role:" + ThisServer.Role.String() + "\n" +
+				"master_replid:" + ThisServer.MasterReplid + "\n" +
+				"master_repl_offset:" + strconv.Itoa(ThisServer.MasterReplOffset) + "\n",
 		}
 	default:
 		return NullResp()

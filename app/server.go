@@ -5,6 +5,8 @@ import (
 	"net"
 	"os"
 	"strings"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -15,11 +17,13 @@ const (
 type serverType int
 
 type Server struct {
-	Role       serverType
-	Listener   net.Listener
-	Conn       []net.Conn
-	MasterHost string
-	MasterPort string
+	Role             serverType
+	Listener         net.Listener
+	Conn             []net.Conn
+	MasterHost       string
+	MasterPort       string
+	MasterReplid     string
+	MasterReplOffset int
 }
 
 // Globals --------------------------------------------------------------------
@@ -40,6 +44,7 @@ func (st serverType) String() string {
 }
 
 func NewServer() (*Server, error) {
+	// Set server port number
 	port := "6379"
 	if val, ok := Flags["port"]; ok {
 		port = val
@@ -51,6 +56,7 @@ func NewServer() (*Server, error) {
 		return nil, err
 	}
 
+	// Set server role, master host and master port
 	var role serverType = MASTER
 	masterHost, masterPort := "localhost", port
 	if val, ok := Flags["replicaof"]; ok {
@@ -62,12 +68,17 @@ func NewServer() (*Server, error) {
 		masterHost, masterPort = hostAndPort[0], hostAndPort[1]
 	}
 
+	// Set server repl id and repl offset
+	replId, _ := uuid.NewUUID()
+
 	return &Server{
-		Listener:   l,
-		Conn:       make([]net.Conn, 0),
-		Role:       role,
-		MasterHost: masterHost,
-		MasterPort: masterPort,
+		Listener:         l,
+		Conn:             make([]net.Conn, 0),
+		Role:             role,
+		MasterHost:       masterHost,
+		MasterPort:       masterPort,
+		MasterReplid:     replId.String(),
+		MasterReplOffset: 0,
 	}, nil
 }
 
