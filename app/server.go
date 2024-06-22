@@ -88,9 +88,15 @@ func (s *Server) handShake() error {
 	// if !parsedResp.IsOkay() {
 	// 	return errors.New("master server did not respond with OK")
 	// }
-
-	writer.Write(Psync(0, 0))
-
+	temp := Psync(0, 0)
+	fmt.Println("Sendind PSYNC command")
+	writer.Write(temp)
+	fmt.Println("Sent PSYNC command")
+	resp = NewBuffer(conn)
+	parsedResp, _ = resp.Read()
+	if strings.Contains(parsedResp.Value, "FULLRESYNC") {
+		fmt.Println("Got FULLRESYNC response")
+	}
 	return nil
 }
 
