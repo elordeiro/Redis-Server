@@ -141,7 +141,7 @@ func info(args []*RESP) *RESP {
 }
 
 // TODO
-func replConfig(args []*RESP) *RESP {
+func replConfig() *RESP {
 	return OkResp()
 }
 
@@ -229,7 +229,7 @@ func handleArray(arr []*RESP) *RESP {
 	case "INFO":
 		return info(args)
 	case "REPLCONF":
-		return replConfig(args)
+		return replConfig()
 	case "PSYNC":
 		return psync(args)
 	case "COMMAND":
