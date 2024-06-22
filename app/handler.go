@@ -86,7 +86,6 @@ func set(args []*RESP) *RESP {
 	SETsMu.Lock()
 	SETs[key] = value
 	SETsMu.Unlock()
-
 	if length > 0 {
 		time.AfterFunc(time.Duration(length)*time.Millisecond, func() {
 			SETsMu.Lock()
