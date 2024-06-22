@@ -50,6 +50,18 @@ func NewWriter(wr io.Writer) *Writer {
 // ----------------------------------------------------------------------------
 
 // Deserialize ----------------------------------------------------------------
+func (buf *Buffer) readString() (*RESP, error) {
+	data, err := buf.reader.ReadString('\n')
+	if err != nil {
+		return &RESP{}, err
+	}
+	data = strings.TrimSuffix(data, "\r\n")
+	return &RESP{
+		Type:  STRING,
+		Value: data,
+	}, nil
+}
+
 func (buf *Buffer) readBulkString() (*RESP, error) {
 	strLen, err := buf.reader.ReadString('\n')
 	if err != nil {
@@ -117,7 +129,9 @@ func (buf *Buffer) Read() (*RESP, error) {
 		return buf.readArray()
 	case BULK:
 		return buf.readBulkString()
-	case STRING, ERROR, INTEGER:
+	case STRING:
+		return buf.readString()
+	case ERROR, INTEGER:
 		return nil, nil
 	default:
 		return nil, errors.New("invalid type")

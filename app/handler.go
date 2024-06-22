@@ -16,6 +16,68 @@ func NullResp() *RESP {
 	return &RESP{Type: NULL}
 }
 
+// Can be used for handshake stage 1
+func PingResp() *RESP {
+	return &RESP{
+		Type: ARRAY,
+		Values: []*RESP{
+			{
+				Type: BULK, Value: "PING",
+			},
+		},
+	}
+}
+
+// Can be used for handshake stage 2
+func ReplconfResp(i int) *RESP {
+	switch i {
+	case 1:
+		return &RESP{
+			Type: ARRAY,
+			Values: []*RESP{
+				{Type: BULK, Value: "REPLCONF"},
+				{Type: BULK, Value: "listening-port"},
+				{Type: BULK, Value: ThisServer.Port},
+			},
+		}
+	case 2:
+		return &RESP{
+			Type: ARRAY,
+			Values: []*RESP{
+				{Type: BULK, Value: "REPLCONF"},
+				{Type: BULK, Value: "capa"},
+				{Type: BULK, Value: "psync2"},
+			},
+		}
+	default:
+		return NullResp()
+	}
+
+}
+
+// ----------------------------------------------------------------------------
+
+// Assert Responses -----------------------------------------------------------
+func (resp *RESP) IsOkay() bool {
+	if resp.Type != STRING {
+		return false
+	}
+	if resp.Value != "OK" {
+		return false
+	}
+	return true
+}
+
+func (resp *RESP) IsPong() bool {
+	if resp.Type != STRING {
+		return false
+	}
+	if resp.Value != "PONG" {
+		return false
+	}
+	return true
+}
+
 // ----------------------------------------------------------------------------
 
 // Common commands -------------------------------------------------------------
@@ -54,6 +116,10 @@ func info(args []*RESP) *RESP {
 	default:
 		return NullResp()
 	}
+}
+
+func replConfig(args []*RESP) *RESP {
+	return nil
 }
 
 // ----------------------------------------------------------------------------
@@ -131,6 +197,8 @@ func handleArray(arr []*RESP) *RESP {
 		return get(args)
 	case "INFO":
 		return info(args)
+	case "REPLCONF":
+		return replConfig(args)
 	case "COMMAND":
 		return commandFunc()
 	default:

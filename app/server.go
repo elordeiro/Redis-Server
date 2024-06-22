@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -44,30 +45,51 @@ func (st serverType) String() string {
 	}
 }
 
-func (s *Server) handShake() {
+// Handshake happens in 3 stages
+func (s *Server) handShake() error {
 	conn, err := net.Dial("tcp", s.MasterHost+":"+s.MasterPort)
 	if err != nil {
 		fmt.Println("Failed to connect to master")
 		os.Exit(1)
 	}
 
+	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
-	ping := &RESP{
-		Type: ARRAY,
-		Values: []*RESP{
-			{
-				Type: BULK, Value: "PING",
-			},
-		},
-	}
-	writer.Write(ping)
 
-	// resp := NewBuffer(conn)
-	// parsedResp, err := resp.Read()
+	// Stage 1
+	writer.Write(PingResp())
+	parsedResp, err := resp.Read()
+	if err != nil {
+		return err
+	}
+	if !parsedResp.IsPong() {
+		return errors.New("master server did not respond with PONG")
+	}
+
+	// Stage 2
+	// resp = NewBuffer(conn)
+	// writer = NewWriter(conn)
+	writer.Write(ReplconfResp(1))
+	// parsedResp, err = resp.Read()
 	// if err != nil {
-	// 	fmt.Println(err)
-	// 	os.Exit(1)
+	// 	return err
 	// }
+	// if !parsedResp.IsOkay() {
+	// 	return errors.New("master server did not respond with OK")
+	// }
+
+	// resp = NewBuffer(conn)
+	// writer = NewWriter(conn)
+	writer.Write(ReplconfResp(2))
+	// parsedResp, err = resp.Read()
+	// if err != nil {
+	// 	return err
+	// }
+	// if !parsedResp.IsOkay() {
+	// 	return errors.New("master server did not respond with OK")
+	// }
+
+	return nil
 }
 
 func NewServer() (*Server, error) {
@@ -171,7 +193,11 @@ func main() {
 	}
 
 	if ThisServer.Role == SLAVE {
-		ThisServer.handShake()
+		err := ThisServer.handShake()
+		if err != nil {
+			fmt.Errorf("Failed to connect to master server")
+			os.Exit(1)
+		}
 	}
 
 	fmt.Println("listening on port: " + ThisServer.Port + "...")
