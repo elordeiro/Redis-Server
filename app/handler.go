@@ -146,10 +146,10 @@ func replConfig() *RESP {
 }
 
 // TODO
-func psync(args []*RESP) *RESP {
+func psync() *RESP {
 	return &RESP{
 		Type:  STRING,
-		Value: "FULLRESYNC <REPL_ID> 0",
+		Value: "FULLRESYNC " + ThisServer.MasterReplid + " " + strconv.Itoa(ThisServer.MasterReplOffset),
 	}
 }
 
@@ -231,7 +231,7 @@ func handleArray(arr []*RESP) *RESP {
 	case "REPLCONF":
 		return replConfig()
 	case "PSYNC":
-		return psync(args)
+		return psync()
 	case "COMMAND":
 		return commandFunc()
 	default:

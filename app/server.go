@@ -6,8 +6,9 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
-	"github.com/google/uuid"
+	"golang.org/x/exp/rand"
 )
 
 const (
@@ -95,6 +96,24 @@ func (s *Server) handShake() error {
 	return nil
 }
 
+// Generate Unique server id --------------------------------------------------
+const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+func initRandom() {
+	rand.Seed(uint64(time.Now().UnixNano()))
+}
+
+func RandStringBytes(n int) string {
+	initRandom()
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[rand.Int63()%int64(len(letterBytes))]
+	}
+	return string(b)
+}
+
+// ----------------------------------------------------------------------------
+
 func NewServer() (*Server, error) {
 	// Set server port number
 	port := "6379"
@@ -121,7 +140,7 @@ func NewServer() (*Server, error) {
 	}
 
 	// Set server repl id and repl offset
-	replId, _ := uuid.NewUUID()
+	replId := RandStringBytes(40)
 
 	return &Server{
 		Listener:         l,
@@ -130,7 +149,7 @@ func NewServer() (*Server, error) {
 		Port:             port,
 		MasterHost:       masterHost,
 		MasterPort:       masterPort,
-		MasterReplid:     replId.String(),
+		MasterReplid:     replId,
 		MasterReplOffset: 0,
 	}, nil
 }
