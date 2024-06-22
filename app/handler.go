@@ -55,6 +55,28 @@ func ReplconfResp(i int) *RESP {
 
 }
 
+// Can be used for handshake stage 3
+func Psync(replId, offset int) *RESP {
+	replIdStr, offsetStr := "", ""
+	switch replId {
+	case 0:
+		replIdStr, offsetStr = "?", "-1"
+	default:
+		replIdStr = strconv.Itoa(replId)
+		offsetStr = strconv.Itoa(offset)
+	}
+
+	return &RESP{
+		Type: ARRAY,
+		Values: []*RESP{
+			{Type: BULK, Value: "PSYNC"},
+			{Type: BULK, Value: replIdStr},
+			{Type: BULK, Value: offsetStr},
+		},
+	}
+
+}
+
 // ----------------------------------------------------------------------------
 
 // Assert Responses -----------------------------------------------------------

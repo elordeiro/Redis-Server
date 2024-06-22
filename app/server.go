@@ -89,6 +89,8 @@ func (s *Server) handShake() error {
 	// 	return errors.New("master server did not respond with OK")
 	// }
 
+	writer.Write(Psync(0, 0))
+
 	return nil
 }
 
