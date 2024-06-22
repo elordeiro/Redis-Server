@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"errors"
+
 	"io"
 	"strconv"
 	"strings"
@@ -15,8 +16,9 @@ const (
 	BULK    = '$'
 	ARRAY   = '*'
 	NULL    = '_'
-	CRLF    = "\r\n"
 )
+
+var CRLF = []byte("\r\n")
 
 type RESP struct {
 	Type   byte
@@ -54,7 +56,7 @@ func (buf *Buffer) readBulkString() (*RESP, error) {
 		return &RESP{}, err
 	}
 
-	length, err := strconv.Atoi(strings.TrimSuffix(string(strLen), "\r\n"))
+	length, err := strconv.Atoi(strings.TrimSuffix(strLen, "\r\n"))
 	if err != nil {
 		return &RESP{}, err
 	}
@@ -81,7 +83,7 @@ func (buf *Buffer) readArray() (*RESP, error) {
 		return nil, err
 	}
 
-	length, err := strconv.Atoi(strings.TrimSuffix(string(strLen), "\r\n"))
+	length, err := strconv.Atoi(strings.TrimSuffix(strLen, "\r\n"))
 	if err != nil {
 		return nil, err
 	}
@@ -125,15 +127,15 @@ func (buf *Buffer) Read() (*RESP, error) {
 // ----------------------------------------------------------------------------
 
 // Serialize ------------------------------------------------------------------
-func (w *Writer) Write(resp *RESP) error {
+func (w *Writer) Write(resp *RESP) (int, error) {
 	bytes := resp.Marshal()
 
-	_, err := w.writer.Write(bytes)
+	n, err := w.writer.Write(bytes)
 	if err != nil {
-		return err
+		return n, err
 	}
 
-	return nil
+	return n, nil
 }
 
 func (resp *RESP) Marshal() []byte {

@@ -8,11 +8,11 @@ import (
 )
 
 // Predefined responses -------------------------------------------------------
-func okResp() *RESP {
+func OkResp() *RESP {
 	return &RESP{Type: STRING, Value: "OK"}
 }
 
-func nullResp() *RESP {
+func NullResp() *RESP {
 	return &RESP{Type: NULL}
 }
 
@@ -39,16 +39,17 @@ func echo(args []*RESP) *RESP {
 
 func info(args []*RESP) *RESP {
 	if len(args) != 1 {
-		return nullResp()
+		return NullResp()
 	}
 	switch args[0].Value {
 	case "replication":
 		return &RESP{
-			Type:  BULK,
-			Value: "role:" + ThisServer.Type.String(),
+			Type: BULK,
+			// Value: "role:" + ThisServer.Type.String(),
+			Value: "role:" + ThisServer.Role.String() + "\n",
 		}
 	default:
-		return nullResp()
+		return NullResp()
 	}
 }
 
@@ -91,7 +92,7 @@ func set(args []*RESP) *RESP {
 		})
 	}
 
-	return okResp()
+	return OkResp()
 }
 
 func get(args []*RESP) *RESP {
@@ -106,7 +107,7 @@ func get(args []*RESP) *RESP {
 	SETsMu.Unlock()
 
 	if !ok {
-		return nullResp()
+		return NullResp()
 	}
 
 	return &RESP{Type: STRING, Value: value}
