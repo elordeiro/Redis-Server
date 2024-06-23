@@ -22,13 +22,13 @@ type Server struct {
 	Role             serverType
 	Listener         net.Listener
 	Conn             []net.Conn
+	Writers          []*Writer
 	Port             string
 	MasterHost       string
 	MasterPort       string
 	MasterConn       net.Conn
 	MasterReplid     string
 	MasterReplOffset int
-	ReplIDToWriter   map[int]*Writer
 }
 
 // Globals --------------------------------------------------------------------
@@ -155,7 +155,7 @@ func NewServer() (*Server, error) {
 		MasterPort:       masterPort,
 		MasterReplid:     replId,
 		MasterReplOffset: 0,
-		ReplIDToWriter:   make(map[int]*Writer),
+		Writers:          []*Writer{},
 	}, nil
 }
 
@@ -172,7 +172,6 @@ func (s *Server) serverAccept() {
 	} else {
 		go s.handleConnectionSlave(conn)
 	}
-
 }
 
 func (s *Server) serverClose() {
@@ -191,11 +190,6 @@ func (s *Server) handleConnectionMaster(conn net.Conn) {
 			fmt.Println(err)
 			fmt.Println("Closing")
 			return
-		}
-
-		// Propagate command
-		for _, w := range ThisServer.ReplIDToWriter {
-			w.Write(parsedResp)
 		}
 
 		results := writer.Handler(parsedResp)
@@ -217,7 +211,7 @@ func (s *Server) handleConnectionSlave(conn net.Conn) {
 		if err != nil {
 			fmt.Println(err)
 			fmt.Println("Closing")
-			return
+			continue
 		}
 
 		results := writer.Handler(parsedResp)
@@ -234,7 +228,7 @@ func (s *Server) handleConnectionSlave(conn net.Conn) {
 			return
 		}
 
-		_ = masterWriter.Handler(parsedResp)
+		masterWriter.Handler(parsedResp)
 
 	}
 }
