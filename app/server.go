@@ -25,9 +25,10 @@ type Server struct {
 	Port             string
 	MasterHost       string
 	MasterPort       string
+	MasterConn       net.Conn
 	MasterReplid     string
 	MasterReplOffset int
-	ReplIDToConn     map[int]net.Conn
+	ReplIDToWriter   map[int]*Writer
 }
 
 // Globals --------------------------------------------------------------------
@@ -51,6 +52,7 @@ func (st serverType) String() string {
 // Handshake happens in 3 stages
 func (s *Server) handShake() error {
 	conn, err := net.Dial("tcp", s.MasterHost+":"+s.MasterPort)
+	ThisServer.MasterConn = conn
 	if err != nil {
 		fmt.Println("Failed to connect to master")
 		os.Exit(1)
@@ -153,7 +155,7 @@ func NewServer() (*Server, error) {
 		MasterPort:       masterPort,
 		MasterReplid:     replId,
 		MasterReplOffset: 0,
-		ReplIDToConn:     make(map[int]net.Conn),
+		ReplIDToWriter:   make(map[int]*Writer),
 	}, nil
 }
 
@@ -165,7 +167,12 @@ func (s *Server) serverAccept() {
 	}
 	s.Conn = append(s.Conn, conn)
 
-	go s.handleConnection(conn)
+	if ThisServer.Role == MASTER {
+		go s.handleConnectionMaster(conn)
+	} else {
+		go s.handleConnectionSlave(conn)
+	}
+
 }
 
 func (s *Server) serverClose() {
@@ -174,11 +181,11 @@ func (s *Server) serverClose() {
 	}
 }
 
-func (s *Server) handleConnection(conn net.Conn) {
+func (s *Server) handleConnectionMaster(conn net.Conn) {
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
-	for {
 
+	for {
 		parsedResp, err := resp.Read()
 		if err != nil {
 			fmt.Println(err)
@@ -186,10 +193,49 @@ func (s *Server) handleConnection(conn net.Conn) {
 			return
 		}
 
-		results := Handler(parsedResp)
+		// Propagate command
+		for _, w := range ThisServer.ReplIDToWriter {
+			w.Write(parsedResp)
+		}
+
+		results := writer.Handler(parsedResp)
+
 		for _, result := range results {
 			writer.Write(result)
 		}
+	}
+}
+
+func (s *Server) handleConnectionSlave(conn net.Conn) {
+	resp := NewBuffer(conn)
+	writer := NewWriter(conn)
+	masterBuf := NewBuffer(ThisServer.MasterConn)
+	masterWriter := NewWriter(ThisServer.MasterConn)
+	for {
+		// Listen on client conn
+		parsedResp, err := resp.Read()
+		if err != nil {
+			fmt.Println(err)
+			fmt.Println("Closing")
+			return
+		}
+
+		results := writer.Handler(parsedResp)
+
+		for _, result := range results {
+			writer.Write(result)
+		}
+
+		// Listen on master conn
+		parsedResp, err = masterBuf.Read()
+		if err != nil {
+			fmt.Println(err)
+			fmt.Println("Closing")
+			return
+		}
+
+		_ = masterWriter.Handler(parsedResp)
+
 	}
 }
 
@@ -218,6 +264,7 @@ func main() {
 		fmt.Println("Failed to create server")
 		os.Exit(1)
 	}
+	defer ThisServer.serverClose()
 
 	if ThisServer.Role == SLAVE {
 		err := ThisServer.handShake()
@@ -228,8 +275,6 @@ func main() {
 	}
 
 	fmt.Println("listening on port: " + ThisServer.Port + "...")
-
-	defer ThisServer.serverClose()
 
 	for {
 		ThisServer.serverAccept()

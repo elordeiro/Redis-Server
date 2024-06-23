@@ -154,6 +154,9 @@ func getRDB() *RESP {
 }
 
 func psync() *RESP {
+	defer func() {
+		ThisServer.MasterReplOffset++
+	}()
 	return &RESP{
 		Type:  STRING,
 		Value: "FULLRESYNC " + ThisServer.MasterReplid + " " + strconv.Itoa(ThisServer.MasterReplOffset),
@@ -221,7 +224,17 @@ func get(args []*RESP) *RESP {
 
 // ----------------------------------------------------------------------------
 
-func handleArray(arr []*RESP) []*RESP {
+var CommandList = map[string]struct{}{
+	"PING": {}, "ECHO": {}, "SET": {}, "GET": {}, "INFO": {}, "REPLCONF": {}, "PSYNC": {}, "COMMAND": {},
+}
+var WriteCommands = map[string]struct{}{
+	"SET": {}, "INFO": {},
+}
+var GetCommands = map[string]struct{}{
+	"PING": {}, "ECHO": {}, "GET": {}, "REPLCONF": {}, "PSYNC": {}, "COMMAND": {},
+}
+
+func (w *Writer) handleArray(arr []*RESP) []*RESP {
 	command := strings.ToUpper(arr[0].Value)
 	args := arr[1:]
 	switch command {
@@ -238,6 +251,7 @@ func handleArray(arr []*RESP) []*RESP {
 	case "REPLCONF":
 		return []*RESP{replConfig()}
 	case "PSYNC":
+		ThisServer.ReplIDToWriter[ThisServer.MasterReplOffset] = w
 		return []*RESP{psync(), getRDB()}
 	case "COMMAND":
 		return []*RESP{commandFunc()}
@@ -246,12 +260,12 @@ func handleArray(arr []*RESP) []*RESP {
 	}
 }
 
-func Handler(response *RESP) []*RESP {
+func (w *Writer) Handler(response *RESP) []*RESP {
 	switch response.Type {
 	case ERROR, INTEGER, BULK, STRING:
 		return []*RESP{{Type: ERROR, Value: "Response type " + response.Value + " handle not yet implemented"}}
 	case ARRAY:
-		return handleArray(response.Values)
+		return w.handleArray(response.Values)
 	default:
 		return []*RESP{{Type: ERROR, Value: "Response type " + response.Value + " not recognized"}}
 	}
