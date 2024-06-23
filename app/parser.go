@@ -16,6 +16,7 @@ const (
 	BULK    = '$'
 	ARRAY   = '*'
 	NULL    = '_'
+	RDB     = '@'
 )
 
 var CRLF = []byte("\r\n")
@@ -160,6 +161,8 @@ func (resp *RESP) Marshal() []byte {
 		return resp.marshalBulk()
 	case ARRAY:
 		return resp.marshalArray()
+	case RDB:
+		return resp.marshallRDB()
 	case ERROR:
 		return resp.marshalError()
 	default:
@@ -192,6 +195,23 @@ func (resp *RESP) marshalArray() (bytes []byte) {
 	for i := range len {
 		bytes = append(bytes, resp.Values[i].Marshal()...)
 	}
+
+	return bytes
+}
+
+func (resp *RESP) marshallRDB() (bytes []byte) {
+	bytes = append(bytes, BULK)
+
+	content := []byte{}
+	for i := 0; i < len(resp.Value); i += 2 {
+		tmp := resp.Value[i : i+2]
+		hex, _ := strconv.ParseUint(tmp, 16, 8)
+		content = append(content, byte(hex))
+	}
+
+	bytes = strconv.AppendInt(bytes, int64(len(content)), 10)
+	bytes = append(bytes, CRLF...)
+	bytes = append(bytes, content...)
 
 	return bytes
 }

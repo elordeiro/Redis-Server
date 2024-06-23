@@ -74,7 +74,6 @@ func Psync(replId, offset int) *RESP {
 			{Type: BULK, Value: offsetStr},
 		},
 	}
-
 }
 
 // ----------------------------------------------------------------------------
@@ -145,7 +144,15 @@ func replConfig() *RESP {
 	return OkResp()
 }
 
-// TODO
+const EmptyRBD = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
+
+func getRDB() *RESP {
+	return &RESP{
+		Type:  RDB,
+		Value: EmptyRBD,
+	}
+}
+
 func psync() *RESP {
 	return &RESP{
 		Type:  STRING,
@@ -214,38 +221,38 @@ func get(args []*RESP) *RESP {
 
 // ----------------------------------------------------------------------------
 
-func handleArray(arr []*RESP) *RESP {
+func handleArray(arr []*RESP) []*RESP {
 	command := strings.ToUpper(arr[0].Value)
 	args := arr[1:]
 	switch command {
 	case "PING":
-		return ping(args)
+		return []*RESP{ping(args)}
 	case "ECHO":
-		return echo(args)
+		return []*RESP{echo(args)}
 	case "SET":
-		return set(args)
+		return []*RESP{set(args)}
 	case "GET":
-		return get(args)
+		return []*RESP{get(args)}
 	case "INFO":
-		return info(args)
+		return []*RESP{info(args)}
 	case "REPLCONF":
-		return replConfig()
+		return []*RESP{replConfig()}
 	case "PSYNC":
-		return psync()
+		return []*RESP{psync(), getRDB()}
 	case "COMMAND":
-		return commandFunc()
+		return []*RESP{commandFunc()}
 	default:
-		return &RESP{Type: ERROR, Value: "Unknown command " + command}
+		return []*RESP{{Type: ERROR, Value: "Unknown command " + command}}
 	}
 }
 
-func Handler(response *RESP) *RESP {
+func Handler(response *RESP) []*RESP {
 	switch response.Type {
 	case ERROR, INTEGER, BULK, STRING:
-		return &RESP{Type: ERROR, Value: "Response type " + response.Value + " handle not yet implemented"}
+		return []*RESP{{Type: ERROR, Value: "Response type " + response.Value + " handle not yet implemented"}}
 	case ARRAY:
 		return handleArray(response.Values)
 	default:
-		return &RESP{Type: ERROR, Value: "Response type " + response.Value + " not recognized"}
+		return []*RESP{{Type: ERROR, Value: "Response type " + response.Value + " not recognized"}}
 	}
 }

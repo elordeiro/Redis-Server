@@ -27,11 +27,13 @@ type Server struct {
 	MasterPort       string
 	MasterReplid     string
 	MasterReplOffset int
+	ReplIDToConn     map[int]net.Conn
 }
 
 // Globals --------------------------------------------------------------------
 var ThisServer *Server
 var Flags map[string]string
+var ResponseBuf = []*RESP{}
 
 // ----------------------------------------------------------------------------
 
@@ -151,6 +153,7 @@ func NewServer() (*Server, error) {
 		MasterPort:       masterPort,
 		MasterReplid:     replId,
 		MasterReplOffset: 0,
+		ReplIDToConn:     make(map[int]net.Conn),
 	}, nil
 }
 
@@ -172,8 +175,9 @@ func (s *Server) serverClose() {
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
+	resp := NewBuffer(conn)
+	writer := NewWriter(conn)
 	for {
-		resp := NewBuffer(conn)
 
 		parsedResp, err := resp.Read()
 		if err != nil {
@@ -182,9 +186,10 @@ func (s *Server) handleConnection(conn net.Conn) {
 			return
 		}
 
-		result := Handler(parsedResp)
-		writer := NewWriter(conn)
-		writer.Write(result)
+		results := Handler(parsedResp)
+		for _, result := range results {
+			writer.Write(result)
+		}
 	}
 }
 
