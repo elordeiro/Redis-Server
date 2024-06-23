@@ -51,6 +51,57 @@ func NewWriter(wr io.Writer) *Writer {
 // ----------------------------------------------------------------------------
 
 // Deserialize ----------------------------------------------------------------
+func (buf *Buffer) readRDB() (*RESP, error) {
+	typ, err := buf.reader.ReadByte()
+	if typ != BULK || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("invalid rdb")
+	}
+
+	strLen, err := buf.reader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+
+	length, err := strconv.Atoi(strings.TrimSuffix(strLen, "\r\n"))
+	if err != nil {
+		return nil, err
+	}
+
+	data := make([]byte, length)
+	_, err = io.ReadFull(buf.reader, data)
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &RESP{
+		Type:  RDB,
+		Value: string(data),
+	}
+	return resp, nil
+}
+
+func (buf *Buffer) ReadFullResync() (*RESP, error) {
+	typ, err := buf.reader.ReadByte()
+	if typ != STRING || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("invalid resync")
+	}
+
+	data, err := buf.reader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	if !strings.HasPrefix(data, "FULLRESYNC") {
+		return nil, errors.New("invalid resync")
+	}
+
+	return buf.readRDB()
+}
 func (buf *Buffer) readString() (*RESP, error) {
 	data, err := buf.reader.ReadString('\n')
 	if err != nil {

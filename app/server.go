@@ -92,7 +92,7 @@ func (s *Server) handShake() error {
 
 	// Stage 3
 	writer.Write(Psync(0, 0))
-	_, err = resp.Read()
+	_, err = resp.ReadFullResync()
 	if err != nil {
 		return err
 	}
@@ -200,16 +200,17 @@ func (s *Server) handleConnectionMaster(conn net.Conn) {
 	}
 }
 
-func (s *Server) handleConnectionSlave(conn net.Conn) {
+func (s *Server) handleClientConnection(conn net.Conn) {
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
-	masterBuf := NewBuffer(ThisServer.MasterConn)
-	masterWriter := NewWriter(ThisServer.MasterConn)
 	for {
-		// Listen on client conn
 		parsedResp, err := resp.Read()
 		var results []*RESP
 		if err != nil {
+			if err.Error() == "EOF" {
+				fmt.Println("Closing")
+				return
+			}
 			fmt.Println(err)
 		} else {
 			results = writer.Handler(parsedResp)
@@ -218,15 +219,29 @@ func (s *Server) handleConnectionSlave(conn net.Conn) {
 		for _, result := range results {
 			writer.Write(result)
 		}
+	}
+}
 
-		// Listen on master conn
-		parsedResp, err = masterBuf.Read()
+func (s *Server) handleMasterConnection(conn net.Conn) {
+	resp := NewBuffer(conn)
+	writer := NewWriter(conn)
+	for {
+		parsedResp, err := resp.Read()
 		if err != nil {
+			if err.Error() == "EOF" {
+				fmt.Println("Closing")
+				return
+			}
 			fmt.Println(err)
 		} else {
-			masterWriter.Handler(parsedResp)
+			writer.Handler(parsedResp)
 		}
 	}
+}
+
+func (s *Server) handleConnectionSlave(conn net.Conn) {
+	go s.handleClientConnection(conn)
+	go s.handleMasterConnection(ThisServer.MasterConn)
 }
 
 func getCommandLineArgs() error {
