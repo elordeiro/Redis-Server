@@ -208,13 +208,12 @@ func (s *Server) handleConnectionSlave(conn net.Conn) {
 	for {
 		// Listen on client conn
 		parsedResp, err := resp.Read()
+		var results []*RESP
 		if err != nil {
 			fmt.Println(err)
-			fmt.Println("Closing")
-			continue
+		} else {
+			results = writer.Handler(parsedResp)
 		}
-
-		results := writer.Handler(parsedResp)
 
 		for _, result := range results {
 			writer.Write(result)
@@ -224,12 +223,9 @@ func (s *Server) handleConnectionSlave(conn net.Conn) {
 		parsedResp, err = masterBuf.Read()
 		if err != nil {
 			fmt.Println(err)
-			fmt.Println("Closing")
-			return
+		} else {
+			masterWriter.Handler(parsedResp)
 		}
-
-		masterWriter.Handler(parsedResp)
-
 	}
 }
 
