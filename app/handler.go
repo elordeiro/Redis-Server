@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -140,8 +141,32 @@ func info(args []*RESP) *RESP {
 }
 
 // TODO
-func replConfig() *RESP {
-	return OkResp()
+func replConfig(args []*RESP) (*RESP, bool) {
+	if len(args) != 2 {
+		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'replconf' command"}, false
+	}
+	if strings.ToUpper(args[0].Value) == "GETACK" && args[1].Value == "*" {
+		return &RESP{
+			Type: ARRAY,
+			Values: []*RESP{
+				{Type: BULK, Value: "REPLCONF"},
+				{Type: BULK, Value: "ACK"},
+				{Type: BULK, Value: "0"},
+			},
+		}, true
+	}
+	return OkResp(), false
+}
+
+func RequestAck() *RESP {
+	return &RESP{
+		Type: ARRAY,
+		Values: []*RESP{
+			{Type: BULK, Value: "replconf"},
+			{Type: BULK, Value: "getack"},
+			{Type: BULK, Value: "*"},
+		},
+	}
 }
 
 const EmptyRBD = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
@@ -154,9 +179,6 @@ func getRDB() *RESP {
 }
 
 func psync() *RESP {
-	// defer func() {
-	// 	ThisServer.MasterReplOffset++
-	// }()
 	return &RESP{
 		Type:  STRING,
 		Value: "FULLRESYNC " + ThisServer.MasterReplid + " " + strconv.Itoa(ThisServer.MasterReplOffset),
@@ -224,6 +246,14 @@ func get(args []*RESP) *RESP {
 
 // ----------------------------------------------------------------------------
 
+func checkOnReplica(w *Writer) {
+	for {
+		fmt.Println("Checking on replica")
+		time.Sleep(5 * time.Second)
+		w.Write(RequestAck())
+	}
+}
+
 var CommandList = map[string]struct{}{
 	"PING": {}, "ECHO": {}, "SET": {}, "GET": {}, "INFO": {}, "REPLCONF": {}, "PSYNC": {}, "COMMAND": {},
 }
@@ -250,9 +280,17 @@ func (w *Writer) handleArray(resp *RESP) []*RESP {
 	case "INFO":
 		return []*RESP{info(args)}
 	case "REPLCONF":
-		return []*RESP{replConfig()}
+		resp, toWrite := replConfig(args)
+		if toWrite {
+			fmt.Println("Writing:", resp)
+			w.Write(resp)
+		}
+		return []*RESP{resp}
 	case "PSYNC":
 		ThisServer.Writers = append(ThisServer.Writers, w)
+		// defer func() {
+		// 	go checkOnReplica(w)
+		// }()
 		return []*RESP{psync(), getRDB()}
 	case "COMMAND":
 		return []*RESP{commandFunc()}

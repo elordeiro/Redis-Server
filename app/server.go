@@ -13,7 +13,7 @@ import (
 
 const (
 	MASTER = iota
-	SLAVE
+	REPLICA
 )
 
 type serverType int
@@ -42,7 +42,7 @@ func (st serverType) String() string {
 	switch st {
 	case MASTER:
 		return "master"
-	case SLAVE:
+	case REPLICA:
 		return "slave"
 	default:
 		return "unknown"
@@ -135,7 +135,7 @@ func NewServer() (*Server, error) {
 	var role serverType = MASTER
 	masterHost, masterPort := "localhost", port
 	if val, ok := Flags["replicaof"]; ok {
-		role = SLAVE
+		role = REPLICA
 		hostAndPort := strings.Split(val, " ")
 		if len(hostAndPort) != 2 {
 			return nil, fmt.Errorf("invalid option for --replicaof")
@@ -160,6 +160,10 @@ func NewServer() (*Server, error) {
 }
 
 func (s *Server) serverAccept() {
+	if ThisServer.Role == REPLICA {
+		go s.handleMasterConnAsReplica(ThisServer.MasterConn)
+	}
+
 	conn, err := s.Listener.Accept()
 	if err != nil {
 		fmt.Println("Error accepting connection: ", err.Error())
@@ -168,9 +172,9 @@ func (s *Server) serverAccept() {
 	s.Conn = append(s.Conn, conn)
 
 	if ThisServer.Role == MASTER {
-		go s.handleConnectionMaster(conn)
+		go s.handleClientConnAsMaster(conn)
 	} else {
-		go s.handleConnectionSlave(conn)
+		go s.handleClientConnAsReplica(conn)
 	}
 }
 
@@ -180,7 +184,7 @@ func (s *Server) serverClose() {
 	}
 }
 
-func (s *Server) handleConnectionMaster(conn net.Conn) {
+func (s *Server) handleClientConnAsMaster(conn net.Conn) {
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
 
@@ -200,7 +204,7 @@ func (s *Server) handleConnectionMaster(conn net.Conn) {
 	}
 }
 
-func (s *Server) handleClientConnection(conn net.Conn) {
+func (s *Server) handleClientConnAsReplica(conn net.Conn) {
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
 	for {
@@ -222,11 +226,13 @@ func (s *Server) handleClientConnection(conn net.Conn) {
 	}
 }
 
-func (s *Server) handleMasterConnection(conn net.Conn) {
+func (s *Server) handleMasterConnAsReplica(conn net.Conn) {
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
 	for {
+		fmt.Println("Handling master connection")
 		parsedResp, err := resp.Read()
+		fmt.Println(parsedResp)
 		if err != nil {
 			if err.Error() == "EOF" {
 				fmt.Println("Closing")
@@ -237,11 +243,6 @@ func (s *Server) handleMasterConnection(conn net.Conn) {
 			writer.Handler(parsedResp)
 		}
 	}
-}
-
-func (s *Server) handleConnectionSlave(conn net.Conn) {
-	go s.handleClientConnection(conn)
-	go s.handleMasterConnection(ThisServer.MasterConn)
 }
 
 func getCommandLineArgs() error {
@@ -271,7 +272,7 @@ func main() {
 	}
 	defer ThisServer.serverClose()
 
-	if ThisServer.Role == SLAVE {
+	if ThisServer.Role == REPLICA {
 		err := ThisServer.handShake()
 		if err != nil {
 			_ = fmt.Errorf("failed to connect to master server")

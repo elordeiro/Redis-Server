@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"errors"
+	"net"
 
 	"io"
 	"strconv"
@@ -27,23 +28,45 @@ type RESP struct {
 	Values []*RESP
 }
 
+func (resp *RESP) String() string {
+	var str string
+	switch resp.Type {
+	case ARRAY:
+		str = "[ "
+		for i := range resp.Values {
+			str += resp.Values[i].String() + " "
+		}
+		str += "]"
+	case BULK, STRING, ERROR, INTEGER, RDB:
+		str = resp.Value
+	default:
+		return ""
+	}
+	str += " "
+	return str
+}
+
 // Reader and Writer ----------------------------------------------------------
 type Buffer struct {
+	conn   net.Conn
 	reader *bufio.Reader
 }
 
 type Writer struct {
+	conn   net.Conn
 	writer io.Writer
 }
 
 func NewBuffer(rd io.Reader) *Buffer {
 	return &Buffer{
+		conn:   rd.(net.Conn),
 		reader: bufio.NewReader(rd),
 	}
 }
 
 func NewWriter(wr io.Writer) *Writer {
 	return &Writer{
+		conn:   wr.(net.Conn),
 		writer: wr,
 	}
 }
