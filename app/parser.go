@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"errors"
-	"net"
 
 	"io"
 	"strconv"
@@ -48,25 +47,21 @@ func (resp *RESP) String() string {
 
 // Reader and Writer ----------------------------------------------------------
 type Buffer struct {
-	conn   net.Conn
 	reader *bufio.Reader
 }
 
 type Writer struct {
-	conn   net.Conn
 	writer io.Writer
 }
 
 func NewBuffer(rd io.Reader) *Buffer {
 	return &Buffer{
-		conn:   rd.(net.Conn),
 		reader: bufio.NewReader(rd),
 	}
 }
 
 func NewWriter(wr io.Writer) *Writer {
 	return &Writer{
-		conn:   wr.(net.Conn),
 		writer: wr,
 	}
 }
