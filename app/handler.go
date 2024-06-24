@@ -248,8 +248,8 @@ func get(args []*RESP) *RESP {
 
 func checkOnReplica(w *Writer) {
 	for {
-		fmt.Println("Checking on replica")
 		time.Sleep(5 * time.Second)
+		fmt.Println("Checking on replica")
 		w.Write(RequestAck())
 	}
 }
@@ -288,9 +288,9 @@ func (w *Writer) handleArray(resp *RESP) []*RESP {
 		return []*RESP{resp}
 	case "PSYNC":
 		ThisServer.Writers = append(ThisServer.Writers, w)
-		// defer func() {
-		// 	go checkOnReplica(w)
-		// }()
+		defer func() {
+			go checkOnReplica(w)
+		}()
 		return []*RESP{psync(), getRDB()}
 	case "COMMAND":
 		return []*RESP{commandFunc()}

@@ -97,6 +97,8 @@ func (s *Server) handShake() error {
 		return err
 	}
 
+	go s.handleMasterConnAsReplica(resp, writer)
+
 	return nil
 }
 
@@ -160,10 +162,6 @@ func NewServer() (*Server, error) {
 }
 
 func (s *Server) serverAccept() {
-	if ThisServer.Role == REPLICA {
-		go s.handleMasterConnAsReplica(ThisServer.MasterConn)
-	}
-
 	conn, err := s.Listener.Accept()
 	if err != nil {
 		fmt.Println("Error accepting connection: ", err.Error())
@@ -226,9 +224,7 @@ func (s *Server) handleClientConnAsReplica(conn net.Conn) {
 	}
 }
 
-func (s *Server) handleMasterConnAsReplica(conn net.Conn) {
-	resp := NewBuffer(conn)
-	writer := NewWriter(conn)
+func (s *Server) handleMasterConnAsReplica(resp *Buffer, writer *Writer) {
 	for {
 		fmt.Println("Handling master connection")
 		parsedResp, err := resp.Read()
