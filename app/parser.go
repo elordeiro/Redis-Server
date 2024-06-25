@@ -125,6 +125,9 @@ func (buf *Buffer) readString() (*RESP, error) {
 	if err != nil {
 		return &RESP{}, err
 	}
+
+	ThisServer.ReplOffset += len(data)
+
 	data = strings.TrimSuffix(data, "\r\n")
 	return &RESP{
 		Type:  STRING,
@@ -137,6 +140,7 @@ func (buf *Buffer) readBulkString() (*RESP, error) {
 	if err != nil {
 		return &RESP{}, err
 	}
+	ThisServer.ReplOffset += len(strLen)
 
 	length, err := strconv.Atoi(strings.TrimSuffix(strLen, "\r\n"))
 	if err != nil {
@@ -145,6 +149,7 @@ func (buf *Buffer) readBulkString() (*RESP, error) {
 	if length == -1 {
 		return &RESP{}, nil
 	}
+	ThisServer.ReplOffset += length + 2
 
 	data := make([]byte, length+2)
 	_, err = io.ReadFull(buf.reader, data)
@@ -164,6 +169,7 @@ func (buf *Buffer) readArray() (*RESP, error) {
 	if err != nil {
 		return nil, err
 	}
+	ThisServer.ReplOffset += len(strLen)
 
 	length, err := strconv.Atoi(strings.TrimSuffix(strLen, "\r\n"))
 	if err != nil {
@@ -193,6 +199,7 @@ func (buf *Buffer) Read() (*RESP, error) {
 	if err != nil {
 		return nil, err
 	}
+	ThisServer.ReplOffset += 1
 
 	switch typ {
 	case ARRAY:

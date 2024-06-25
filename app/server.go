@@ -28,6 +28,7 @@ type Server struct {
 	MasterPort       string
 	MasterConn       net.Conn
 	MasterReplid     string
+	ReplOffset       int
 	MasterReplOffset int
 }
 
@@ -97,6 +98,7 @@ func (s *Server) handShake() error {
 		return err
 	}
 
+	ThisServer.MasterReplOffset = 0
 	go s.handleMasterConnAsReplica(resp, writer)
 
 	return nil
@@ -206,6 +208,7 @@ func (s *Server) handleClientConnAsReplica(conn net.Conn) {
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
 	for {
+		ThisServer.ReplOffset = 0
 		parsedResp, err := resp.Read()
 		var results []*RESP
 		if err != nil {
@@ -227,6 +230,7 @@ func (s *Server) handleClientConnAsReplica(conn net.Conn) {
 func (s *Server) handleMasterConnAsReplica(resp *Buffer, writer *Writer) {
 	for {
 		fmt.Println("Handling master connection")
+		ThisServer.ReplOffset = 0
 		parsedResp, err := resp.Read()
 		fmt.Println(parsedResp)
 		if err != nil {
@@ -237,6 +241,7 @@ func (s *Server) handleMasterConnAsReplica(resp *Buffer, writer *Writer) {
 			fmt.Println(err)
 		} else {
 			writer.Handler(parsedResp)
+			ThisServer.MasterReplOffset += ThisServer.ReplOffset
 		}
 	}
 }

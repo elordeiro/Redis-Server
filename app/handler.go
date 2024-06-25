@@ -140,7 +140,6 @@ func info(args []*RESP) *RESP {
 	}
 }
 
-// TODO
 func replConfig(args []*RESP) (*RESP, bool) {
 	if len(args) != 2 {
 		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'replconf' command"}, false
@@ -151,7 +150,7 @@ func replConfig(args []*RESP) (*RESP, bool) {
 			Values: []*RESP{
 				{Type: BULK, Value: "REPLCONF"},
 				{Type: BULK, Value: "ACK"},
-				{Type: BULK, Value: "0"},
+				{Type: BULK, Value: strconv.Itoa(ThisServer.MasterReplOffset)},
 			},
 		}, true
 	}
@@ -288,9 +287,9 @@ func (w *Writer) handleArray(resp *RESP) []*RESP {
 		return []*RESP{resp}
 	case "PSYNC":
 		ThisServer.Writers = append(ThisServer.Writers, w)
-		defer func() {
-			go checkOnReplica(w)
-		}()
+		// defer func() {
+		// 	go checkOnReplica(w)
+		// }()
 		return []*RESP{psync(), getRDB()}
 	case "COMMAND":
 		return []*RESP{commandFunc()}
