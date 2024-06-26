@@ -205,7 +205,7 @@ func (resp *RESP) IsPong() bool {
 
 // ----------------------------------------------------------------------------
 
-// Common commands -------------------------------------------------------------
+// General commands -----------------------------------------------------------
 func commandFunc() *RESP {
 	return &RESP{Type: NULL, Value: "Command"}
 }
@@ -262,38 +262,9 @@ func replConfig(args []*RESP, mros int) *RESP {
 	return OkResp()
 }
 
-func (s *Server) wait(args []*RESP) *RESP {
-	numReplicas, _ := strconv.Atoi(args[0].Value)
-	timeout, _ := strconv.Atoi(args[1].Value)
-
-	done := make(chan bool, 1)
-	go func() {
-		time.Sleep(time.Duration(timeout) * time.Millisecond)
-		done <- true
-	}()
-
-	for i, w := range s.Writers {
-		if <-done {
-			return &RESP{
-				Type:  INTEGER,
-				Value: strconv.Itoa(i),
-			}
-		}
-		if i == numReplicas {
-			break
-		}
-		w.Write(GetAckResp())
-	}
-
-	return &RESP{
-		Type:  INTEGER,
-		Value: strconv.Itoa(numReplicas),
-	}
-}
-
 // ----------------------------------------------------------------------------
 
-// Get and Set functions ------------------------------------------------------
+// Server specific commands ---------------------------------------------------
 
 func (s *Server) set(args []*RESP) *RESP {
 	if !(len(args) == 2 || len(args) == 4) {
@@ -345,6 +316,35 @@ func (s *Server) get(args []*RESP) *RESP {
 	}
 
 	return &RESP{Type: STRING, Value: value}
+}
+
+func (s *Server) wait(args []*RESP) *RESP {
+	numReplicas, _ := strconv.Atoi(args[0].Value)
+	timeout, _ := strconv.Atoi(args[1].Value)
+
+	done := make(chan bool, 1)
+	go func() {
+		time.Sleep(time.Duration(timeout) * time.Millisecond)
+		done <- true
+	}()
+
+	for i, w := range s.Writers {
+		if <-done {
+			return &RESP{
+				Type:  INTEGER,
+				Value: strconv.Itoa(len(s.Writers)),
+			}
+		}
+		if i == numReplicas {
+			break
+		}
+		w.Write(GetAckResp())
+	}
+
+	return &RESP{
+		Type:  INTEGER,
+		Value: strconv.Itoa(len(s.Writers)),
+	}
 }
 
 // ----------------------------------------------------------------------------
