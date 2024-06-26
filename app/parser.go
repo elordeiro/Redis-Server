@@ -21,6 +21,7 @@ const (
 
 var CRLF = []byte("\r\n")
 
+// RESP related ---------------------------------------------------------------
 type RESP struct {
 	Type   byte
 	Value  string
@@ -44,6 +45,17 @@ func (resp *RESP) String() string {
 	str += " "
 	return str
 }
+
+func (resp *RESP) Len() int {
+	n := 1
+	n += len(resp.Value)
+	for _, val := range resp.Values {
+		n += len(val.Value)
+	}
+	return n
+}
+
+// ----------------------------------------------------------------------------
 
 // Reader and Writer ----------------------------------------------------------
 type Buffer struct {
@@ -69,6 +81,125 @@ func NewWriter(wr io.Writer) *Writer {
 // ----------------------------------------------------------------------------
 
 // Deserialize ----------------------------------------------------------------
+func (buf *Buffer) Read() (*RESP, int, error) {
+	typ, err := buf.reader.ReadByte()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var resp *RESP
+	var n int
+	switch typ {
+	case ARRAY:
+		resp, n, err = buf.readArray()
+	case BULK:
+		resp, n, err = buf.readBulkString()
+	case STRING:
+		resp, n, err = buf.readString()
+	case ERROR, INTEGER:
+		return nil, 0, nil
+	default:
+		return nil, 0, errors.New("invalid type")
+	}
+	return resp, 1 + n, err
+}
+
+func (buf *Buffer) readArray() (*RESP, int, error) {
+	strLen, err := buf.reader.ReadString('\n')
+	n := len(strLen)
+	if err != nil {
+		return nil, n, err
+	}
+
+	length, err := strconv.Atoi(strings.TrimSuffix(strLen, "\r\n"))
+	if err != nil {
+		return nil, n, err
+	}
+	if length == -1 {
+		return nil, n, nil
+	}
+
+	values := make([]*RESP, length)
+	for i := range length {
+		value, m, err := buf.Read()
+		if err != nil {
+			return nil, n, err
+		}
+		n += m
+		values[i] = value
+	}
+
+	return &RESP{
+		Type:   ARRAY,
+		Values: values,
+	}, n, nil
+}
+
+func (buf *Buffer) readBulkString() (*RESP, int, error) {
+	strLen, err := buf.reader.ReadString('\n')
+	n := len(strLen)
+	if err != nil {
+		return &RESP{}, n, err
+	}
+
+	length, err := strconv.Atoi(strings.TrimSuffix(strLen, "\r\n"))
+	if err != nil {
+		return &RESP{}, n, err
+	}
+	if length == -1 {
+		return &RESP{}, n, nil
+	}
+
+	data := make([]byte, length+2)
+	m, err := io.ReadFull(buf.reader, data)
+	if err != nil {
+		return &RESP{}, n - (n - m), err
+	}
+
+	resp := &RESP{
+		Type:  BULK,
+		Value: string(data[:length]),
+	}
+	return resp, n + m, nil
+}
+
+// 1 3     1 13                1 11              1 6
+// * 3\r\n $ 8\r\nreplconf\r\n $ 6\r\ngetack\r\n $ 1\r\n*\r\n
+func (buf *Buffer) readString() (*RESP, int, error) {
+	data, err := buf.reader.ReadString('\n')
+	if err != nil {
+		return &RESP{}, 0, err
+	}
+
+	n := len(data)
+
+	data = strings.TrimSuffix(data, "\r\n")
+	return &RESP{
+		Type:  STRING,
+		Value: data,
+	}, n, nil
+}
+
+func (buf *Buffer) ReadFullResync() (*RESP, error) {
+	typ, err := buf.reader.ReadByte()
+	if typ != STRING || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("invalid resync")
+	}
+
+	data, err := buf.reader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	if !strings.HasPrefix(data, "FULLRESYNC") {
+		return nil, errors.New("invalid resync")
+	}
+
+	return buf.readRDB()
+}
+
 func (buf *Buffer) readRDB() (*RESP, error) {
 	typ, err := buf.reader.ReadByte()
 	if typ != BULK || err != nil {
@@ -101,120 +232,6 @@ func (buf *Buffer) readRDB() (*RESP, error) {
 	return resp, nil
 }
 
-func (buf *Buffer) ReadFullResync() (*RESP, error) {
-	typ, err := buf.reader.ReadByte()
-	if typ != STRING || err != nil {
-		if err != nil {
-			return nil, err
-		}
-		return nil, errors.New("invalid resync")
-	}
-
-	data, err := buf.reader.ReadString('\n')
-	if err != nil {
-		return nil, err
-	}
-	if !strings.HasPrefix(data, "FULLRESYNC") {
-		return nil, errors.New("invalid resync")
-	}
-
-	return buf.readRDB()
-}
-func (buf *Buffer) readString() (*RESP, error) {
-	data, err := buf.reader.ReadString('\n')
-	if err != nil {
-		return &RESP{}, err
-	}
-
-	ThisServer.ReplOffset += len(data)
-
-	data = strings.TrimSuffix(data, "\r\n")
-	return &RESP{
-		Type:  STRING,
-		Value: data,
-	}, nil
-}
-
-func (buf *Buffer) readBulkString() (*RESP, error) {
-	strLen, err := buf.reader.ReadString('\n')
-	if err != nil {
-		return &RESP{}, err
-	}
-	ThisServer.ReplOffset += len(strLen)
-
-	length, err := strconv.Atoi(strings.TrimSuffix(strLen, "\r\n"))
-	if err != nil {
-		return &RESP{}, err
-	}
-	if length == -1 {
-		return &RESP{}, nil
-	}
-	ThisServer.ReplOffset += length + 2
-
-	data := make([]byte, length+2)
-	_, err = io.ReadFull(buf.reader, data)
-	if err != nil {
-		return &RESP{}, err
-	}
-
-	resp := &RESP{
-		Type:  BULK,
-		Value: string(data[:length]),
-	}
-	return resp, nil
-}
-
-func (buf *Buffer) readArray() (*RESP, error) {
-	strLen, err := buf.reader.ReadString('\n')
-	if err != nil {
-		return nil, err
-	}
-	ThisServer.ReplOffset += len(strLen)
-
-	length, err := strconv.Atoi(strings.TrimSuffix(strLen, "\r\n"))
-	if err != nil {
-		return nil, err
-	}
-	if length == -1 {
-		return nil, nil
-	}
-
-	values := make([]*RESP, length)
-	for i := range length {
-		value, err := buf.Read()
-		if err != nil {
-			return nil, err
-		}
-		values[i] = value
-	}
-
-	return &RESP{
-		Type:   ARRAY,
-		Values: values,
-	}, nil
-}
-
-func (buf *Buffer) Read() (*RESP, error) {
-	typ, err := buf.reader.ReadByte()
-	if err != nil {
-		return nil, err
-	}
-	ThisServer.ReplOffset += 1
-
-	switch typ {
-	case ARRAY:
-		return buf.readArray()
-	case BULK:
-		return buf.readBulkString()
-	case STRING:
-		return buf.readString()
-	case ERROR, INTEGER:
-		return nil, nil
-	default:
-		return nil, errors.New("invalid type")
-	}
-}
-
 // ----------------------------------------------------------------------------
 
 // Serialize ------------------------------------------------------------------
@@ -241,6 +258,8 @@ func (resp *RESP) Marshal() []byte {
 		return resp.marshallRDB()
 	case ERROR:
 		return resp.marshalError()
+	case INTEGER:
+		return resp.marshalInteger()
 	default:
 		return resp.marshalNull()
 	}
@@ -294,6 +313,14 @@ func (resp *RESP) marshallRDB() (bytes []byte) {
 
 func (resp *RESP) marshalError() (bytes []byte) {
 	bytes = append(bytes, ERROR)
+	bytes = append(bytes, resp.Value...)
+	bytes = append(bytes, CRLF...)
+
+	return bytes
+}
+
+func (resp *RESP) marshalInteger() (bytes []byte) {
+	bytes = append(bytes, INTEGER)
 	bytes = append(bytes, resp.Value...)
 	bytes = append(bytes, CRLF...)
 

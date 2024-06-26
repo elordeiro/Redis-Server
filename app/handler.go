@@ -4,9 +4,81 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
+
+// Handler entry point --------------------------------------------------------
+func (s *Server) Handler(parsedResp *RESP, w *Writer) (resp []*RESP) {
+	switch parsedResp.Type {
+	case ERROR, INTEGER, BULK, STRING:
+		return []*RESP{{Type: ERROR, Value: "Response type " + parsedResp.Value + " handle not yet implemented"}}
+	case ARRAY:
+		return s.handleArray(parsedResp, w)
+	default:
+		return []*RESP{{Type: ERROR, Value: "Response type " + parsedResp.Value + " not recognized"}}
+	}
+}
+
+func (s *Server) handleArray(resp *RESP, w *Writer) []*RESP {
+	command := strings.ToUpper(resp.Values[0].Value)
+	args := resp.Values[1:]
+	switch command {
+	case "PING":
+		return []*RESP{ping(args)}
+	case "ECHO":
+		return []*RESP{echo(args)}
+	case "SET":
+		s.propagateCommand(resp)
+		return []*RESP{s.set(args)}
+	case "GET":
+		return []*RESP{s.get(args)}
+	case "INFO":
+		return []*RESP{info(args, s.Role.String(), s.MasterReplid, s.MasterReplOffset)}
+	case "REPLCONF":
+		resp := replConfig(args, s.MasterReplOffset)
+		if s.Role == REPLICA {
+			fmt.Println("Response: ", resp)
+			w.Write(resp)
+		}
+		if resp == nil {
+			return []*RESP{}
+		}
+		return []*RESP{resp}
+	case "PSYNC":
+		s.Writers = append(s.Writers, w)
+		defer func() {
+			// go s.checkOnReplica(w)
+		}()
+		return []*RESP{psync(s.MasterReplid, s.MasterReplOffset), getRDB()}
+	case "WAIT":
+		return []*RESP{s.wait(args)}
+	case "COMMAND":
+		return []*RESP{commandFunc()}
+	default:
+		return []*RESP{{Type: ERROR, Value: "Unknown command " + command}}
+	}
+}
+
+func (s *Server) propagateCommand(resp *RESP) {
+	for _, w := range s.Writers {
+		s.MasterReplOffset += resp.Len()
+		w.Write(resp)
+	}
+}
+
+func (s *Server) checkOnReplica(w *Writer) {
+	getAckResp := GetAckResp()
+	n := getAckResp.Len()
+	for {
+		time.Sleep(5 * time.Second)
+		fmt.Println("Checking On Replica")
+		s.MasterReplOffset += n
+		w.Write(getAckResp)
+		// time.Sleep(120 * time.Second)
+	}
+}
+
+// ----------------------------------------------------------------------------
 
 // Predefined responses -------------------------------------------------------
 func OkResp() *RESP {
@@ -17,6 +89,20 @@ func NullResp() *RESP {
 	return &RESP{Type: NULL}
 }
 
+func GetAckResp() *RESP {
+	return &RESP{
+		Type: ARRAY,
+		Values: []*RESP{
+			{Type: BULK, Value: "replconf"},
+			{Type: BULK, Value: "getack"},
+			{Type: BULK, Value: "*"},
+		},
+	}
+}
+
+// ----------------------------------------------------------------------------
+
+// Handshake helpers ----------------------------------------------------------
 // Can be used for handshake stage 1
 func PingResp() *RESP {
 	return &RESP{
@@ -30,7 +116,7 @@ func PingResp() *RESP {
 }
 
 // Can be used for handshake stage 2
-func ReplconfResp(i int) *RESP {
+func ReplconfResp(i int, port string) *RESP {
 	switch i {
 	case 1:
 		return &RESP{
@@ -38,7 +124,7 @@ func ReplconfResp(i int) *RESP {
 			Values: []*RESP{
 				{Type: BULK, Value: "REPLCONF"},
 				{Type: BULK, Value: "listening-port"},
-				{Type: BULK, Value: ThisServer.Port},
+				{Type: BULK, Value: port},
 			},
 		}
 	case 2:
@@ -56,7 +142,7 @@ func ReplconfResp(i int) *RESP {
 
 }
 
-// Can be used for handshake stage 3
+// Can be used for handshake stage 3 as Replica
 func Psync(replId, offset int) *RESP {
 	replIdStr, offsetStr := "", ""
 	switch replId {
@@ -74,6 +160,23 @@ func Psync(replId, offset int) *RESP {
 			{Type: BULK, Value: replIdStr},
 			{Type: BULK, Value: offsetStr},
 		},
+	}
+}
+
+// Can be used for handshake stage 3 as Master
+const EmptyRBD = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
+
+func getRDB() *RESP {
+	return &RESP{
+		Type:  RDB,
+		Value: EmptyRBD,
+	}
+}
+
+func psync(mrid string, mros int) *RESP {
+	return &RESP{
+		Type:  STRING,
+		Value: "FULLRESYNC " + mrid + " " + strconv.Itoa(mros),
 	}
 }
 
@@ -121,7 +224,7 @@ func echo(args []*RESP) *RESP {
 	return &RESP{Type: STRING, Value: args[0].Value}
 }
 
-func info(args []*RESP) *RESP {
+func info(args []*RESP, role, mrid string, mros int) *RESP {
 	if len(args) != 1 {
 		return NullResp()
 	}
@@ -129,20 +232,19 @@ func info(args []*RESP) *RESP {
 	case "replication":
 		return &RESP{
 			Type: BULK,
-			// Value: "role:" + ThisServer.Type.String(),
 			Value: "# Replication\n" +
-				"role:" + ThisServer.Role.String() + "\n" +
-				"master_replid:" + ThisServer.MasterReplid + "\n" +
-				"master_repl_offset:" + strconv.Itoa(ThisServer.MasterReplOffset) + "\n",
+				"role:" + role + "\n" +
+				"master_replid:" + mrid + "\n" +
+				"master_repl_offset:" + strconv.Itoa(mros) + "\n",
 		}
 	default:
 		return NullResp()
 	}
 }
 
-func replConfig(args []*RESP) (*RESP, bool) {
+func replConfig(args []*RESP, mros int) *RESP {
 	if len(args) != 2 {
-		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'replconf' command"}, false
+		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'replconf' command"}
 	}
 	if strings.ToUpper(args[0].Value) == "GETACK" && args[1].Value == "*" {
 		return &RESP{
@@ -150,48 +252,50 @@ func replConfig(args []*RESP) (*RESP, bool) {
 			Values: []*RESP{
 				{Type: BULK, Value: "REPLCONF"},
 				{Type: BULK, Value: "ACK"},
-				{Type: BULK, Value: strconv.Itoa(ThisServer.MasterReplOffset)},
+				{Type: BULK, Value: strconv.Itoa(mros)},
 			},
-		}, true
+		}
 	}
-	return OkResp(), false
+	if strings.ToUpper(args[0].Value) == "ACK" {
+		return nil
+	}
+	return OkResp()
 }
 
-func RequestAck() *RESP {
-	return &RESP{
-		Type: ARRAY,
-		Values: []*RESP{
-			{Type: BULK, Value: "replconf"},
-			{Type: BULK, Value: "getack"},
-			{Type: BULK, Value: "*"},
-		},
+func (s *Server) wait(args []*RESP) *RESP {
+	numReplicas, _ := strconv.Atoi(args[0].Value)
+	timeout, _ := strconv.Atoi(args[1].Value)
+
+	done := make(chan bool, 1)
+	go func() {
+		time.Sleep(time.Duration(timeout) * time.Millisecond)
+		done <- true
+	}()
+
+	for i, w := range s.Writers {
+		if <-done {
+			return &RESP{
+				Type:  INTEGER,
+				Value: strconv.Itoa(i),
+			}
+		}
+		if i == numReplicas {
+			break
+		}
+		w.Write(GetAckResp())
 	}
-}
 
-const EmptyRBD = "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
-
-func getRDB() *RESP {
 	return &RESP{
-		Type:  RDB,
-		Value: EmptyRBD,
-	}
-}
-
-func psync() *RESP {
-	return &RESP{
-		Type:  STRING,
-		Value: "FULLRESYNC " + ThisServer.MasterReplid + " " + strconv.Itoa(ThisServer.MasterReplOffset),
+		Type:  INTEGER,
+		Value: strconv.Itoa(numReplicas),
 	}
 }
 
 // ----------------------------------------------------------------------------
 
-// Get and Set function and storage -------------------------------------------
+// Get and Set functions ------------------------------------------------------
 
-var SETs = map[string]string{}
-var SETsMu = sync.RWMutex{}
-
-func set(args []*RESP) *RESP {
+func (s *Server) set(args []*RESP) *RESP {
 	if !(len(args) == 2 || len(args) == 4) {
 		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'set' command"}
 	}
@@ -211,30 +315,30 @@ func set(args []*RESP) *RESP {
 
 	key, value := args[0].Value, args[1].Value
 
-	SETsMu.Lock()
-	SETs[key] = value
-	SETsMu.Unlock()
+	s.SETsMu.Lock()
+	s.SETs[key] = value
+	s.SETsMu.Unlock()
 	if length > 0 {
 		time.AfterFunc(time.Duration(length)*time.Millisecond, func() {
-			SETsMu.Lock()
-			delete(SETs, key)
-			SETsMu.Unlock()
+			s.SETsMu.Lock()
+			delete(s.SETs, key)
+			s.SETsMu.Unlock()
 		})
 	}
 
 	return OkResp()
 }
 
-func get(args []*RESP) *RESP {
+func (s *Server) get(args []*RESP) *RESP {
 	if len(args) != 1 {
 		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'get' command"}
 	}
 
 	key := args[0].Value
 
-	SETsMu.Lock()
-	value, ok := SETs[key]
-	SETsMu.Unlock()
+	s.SETsMu.Lock()
+	value, ok := s.SETs[key]
+	s.SETsMu.Unlock()
 
 	if !ok {
 		return NullResp()
@@ -244,73 +348,3 @@ func get(args []*RESP) *RESP {
 }
 
 // ----------------------------------------------------------------------------
-
-func checkOnReplica(w *Writer) {
-	for {
-		time.Sleep(5 * time.Second)
-		fmt.Println("Checking on replica")
-		w.Write(RequestAck())
-	}
-}
-
-var CommandList = map[string]struct{}{
-	"PING": {}, "ECHO": {}, "SET": {}, "GET": {}, "INFO": {}, "REPLCONF": {}, "PSYNC": {}, "COMMAND": {},
-}
-var WriteCommands = map[string]struct{}{
-	"SET": {}, "INFO": {},
-}
-var GetCommands = map[string]struct{}{
-	"PING": {}, "ECHO": {}, "GET": {}, "REPLCONF": {}, "PSYNC": {}, "COMMAND": {},
-}
-
-func (w *Writer) handleArray(resp *RESP) []*RESP {
-	command := strings.ToUpper(resp.Values[0].Value)
-	args := resp.Values[1:]
-	switch command {
-	case "PING":
-		return []*RESP{ping(args)}
-	case "ECHO":
-		return []*RESP{echo(args)}
-	case "SET":
-		propagateCommand(resp)
-		return []*RESP{set(args)}
-	case "GET":
-		return []*RESP{get(args)}
-	case "INFO":
-		return []*RESP{info(args)}
-	case "REPLCONF":
-		resp, toWrite := replConfig(args)
-		if toWrite {
-			fmt.Println("Writing:", resp)
-			w.Write(resp)
-		}
-		return []*RESP{resp}
-	case "PSYNC":
-		ThisServer.Writers = append(ThisServer.Writers, w)
-		// defer func() {
-		// 	go checkOnReplica(w)
-		// }()
-		return []*RESP{psync(), getRDB()}
-	case "COMMAND":
-		return []*RESP{commandFunc()}
-	default:
-		return []*RESP{{Type: ERROR, Value: "Unknown command " + command}}
-	}
-}
-
-func propagateCommand(resp *RESP) {
-	for _, w := range ThisServer.Writers {
-		w.Write(resp)
-	}
-}
-
-func (w *Writer) Handler(response *RESP) (resp []*RESP) {
-	switch response.Type {
-	case ERROR, INTEGER, BULK, STRING:
-		return []*RESP{{Type: ERROR, Value: "Response type " + response.Value + " handle not yet implemented"}}
-	case ARRAY:
-		return w.handleArray(response)
-	default:
-		return []*RESP{{Type: ERROR, Value: "Response type " + response.Value + " not recognized"}}
-	}
-}
