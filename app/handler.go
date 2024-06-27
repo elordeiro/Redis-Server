@@ -8,20 +8,19 @@ import (
 )
 
 // Handler entry point --------------------------------------------------------
-func (s *Server) Handler(parsedResp *RESP, w *Writer) (resp []*RESP) {
+func (s *Server) Handler(parsedResp *RESP, conn *ConnRW) (resp []*RESP) {
 	switch parsedResp.Type {
 	case ERROR, INTEGER, BULK, STRING:
 		return []*RESP{{Type: ERROR, Value: "Response type " + parsedResp.Value + " handle not yet implemented"}}
 	case ARRAY:
-		return s.handleArray(parsedResp, w)
+		return s.handleArray(parsedResp, conn)
 	default:
 		return []*RESP{{Type: ERROR, Value: "Response type " + parsedResp.Value + " not recognized"}}
 	}
 }
 
-func (s *Server) handleArray(resp *RESP, w *Writer) []*RESP {
-	command := strings.ToUpper(resp.Values[0].Value)
-	args := resp.Values[1:]
+func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
+	command, args := resp.getCmdAndArgs()
 	switch command {
 	case "PING":
 		return []*RESP{ping(args)}
@@ -35,17 +34,11 @@ func (s *Server) handleArray(resp *RESP, w *Writer) []*RESP {
 	case "INFO":
 		return []*RESP{info(args, s.Role.String(), s.MasterReplid, s.MasterReplOffset)}
 	case "REPLCONF":
-		resp := replConfig(args, s.MasterReplOffset)
-		if s.Role == REPLICA {
-			fmt.Println("Response: ", resp)
-			w.Write(resp)
-		}
-		if resp == nil {
-			return []*RESP{}
-		}
-		return []*RESP{resp}
+		s.replConfig(args, conn)
+		return []*RESP{}
 	case "PSYNC":
-		s.Writers = append(s.Writers, w)
+		conn.Type = REPLICA
+		s.ReplicaCount++
 		defer func() {
 			// go s.checkOnReplica(w)
 		}()
@@ -60,21 +53,24 @@ func (s *Server) handleArray(resp *RESP, w *Writer) []*RESP {
 }
 
 func (s *Server) propagateCommand(resp *RESP) {
-	for _, w := range s.Writers {
-		s.MasterReplOffset += resp.Len()
-		w.Write(resp)
+	for _, conn := range s.Conns {
+		if conn.Type != REPLICA {
+			continue
+		}
+		marshaled := resp.Marshal()
+		s.MasterReplOffset += len(marshaled)
+		Write(conn.Writer, marshaled)
 	}
 }
 
 func (s *Server) checkOnReplica(w *Writer) {
-	getAckResp := GetAckResp()
-	n := getAckResp.Len()
+	getAckResp := GetAckResp().Marshal()
+	n := len(getAckResp)
 	for {
 		time.Sleep(5 * time.Second)
 		fmt.Println("Checking On Replica")
 		s.MasterReplOffset += n
-		w.Write(getAckResp)
-		// time.Sleep(120 * time.Second)
+		Write(w, getAckResp)
 	}
 }
 
@@ -93,8 +89,8 @@ func GetAckResp() *RESP {
 	return &RESP{
 		Type: ARRAY,
 		Values: []*RESP{
-			{Type: BULK, Value: "replconf"},
-			{Type: BULK, Value: "getack"},
+			{Type: BULK, Value: "REPLCONF"},
+			{Type: BULK, Value: "GETACK"},
 			{Type: BULK, Value: "*"},
 		},
 	}
@@ -242,35 +238,14 @@ func info(args []*RESP, role, mrid string, mros int) *RESP {
 	}
 }
 
-func replConfig(args []*RESP, mros int) *RESP {
-	if len(args) != 2 {
-		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'replconf' command"}
-	}
-	if strings.ToUpper(args[0].Value) == "GETACK" && args[1].Value == "*" {
-		return &RESP{
-			Type: ARRAY,
-			Values: []*RESP{
-				{Type: BULK, Value: "REPLCONF"},
-				{Type: BULK, Value: "ACK"},
-				{Type: BULK, Value: strconv.Itoa(mros)},
-			},
-		}
-	}
-	if strings.ToUpper(args[0].Value) == "ACK" {
-		return nil
-	}
-	return OkResp()
-}
-
 // ----------------------------------------------------------------------------
 
 // Server specific commands ---------------------------------------------------
-
 func (s *Server) set(args []*RESP) *RESP {
 	if !(len(args) == 2 || len(args) == 4) {
 		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'set' command"}
 	}
-
+	s.NeedAcks = true
 	var length int
 	if len(args) > 2 {
 		if strings.ToLower(args[2].Value) != "px" {
@@ -318,32 +293,105 @@ func (s *Server) get(args []*RESP) *RESP {
 	return &RESP{Type: STRING, Value: value}
 }
 
+func (s *Server) replConfig(args []*RESP, conn *ConnRW) (resp *RESP) {
+	if len(args) != 2 {
+		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'replconf' command"}
+	}
+
+	if strings.ToUpper(args[0].Value) == "GETACK" && args[1].Value == "*" {
+		// Replica recieved REPLCONF GETACK * -> Send ACK <offset> to master
+		resp = &RESP{
+			Type: ARRAY,
+			Values: []*RESP{
+				{Type: BULK, Value: "REPLCONF"},
+				{Type: BULK, Value: "ACK"},
+				{Type: BULK, Value: strconv.Itoa(s.MasterReplOffset)},
+			},
+		}
+		fmt.Println("Response: ", resp)
+		Write(conn.Writer, resp)
+	} else if strings.ToUpper(args[0].Value) == "ACK" {
+		// Master recieved REPLCONF ACK <offset> from replica -> Read <offset> from replica
+		resp = &RESP{
+			Type:  INTEGER,
+			Value: args[1].Value,
+		}
+	} else {
+		// Master recieved REPLCONF listening-port <port> or REPLCONF capa psync2 from replica -> Do nothing
+		resp = OkResp()
+		Write(conn.Writer, resp)
+	}
+	return resp
+}
+
+func (s *Server) sendGetAckCommand(getAck []byte) {
+	for _, c := range s.Conns {
+		if c.Type != REPLICA {
+			continue
+		}
+		Write(c.Writer, getAck)
+	}
+}
+
 func (s *Server) wait(args []*RESP) *RESP {
+	if !s.NeedAcks {
+		return &RESP{Type: INTEGER, Value: strconv.Itoa(s.ReplicaCount)}
+	}
+	getAck := GetAckResp().Marshal()
+	defer func() {
+		s.MasterReplOffset += len(getAck)
+		s.Redirect = false
+		s.NeedAcks = false
+		fmt.Println("")
+	}()
+
 	numReplicas, _ := strconv.Atoi(args[0].Value)
 	timeout, _ := strconv.Atoi(args[1].Value)
 
-	done := make(chan bool, 1)
-	go func() {
-		time.Sleep(time.Duration(timeout) * time.Millisecond)
-		done <- true
-	}()
+	timeoutChan := time.After(time.Duration(timeout) * time.Millisecond)
+	acks := 0
 
-	for i, w := range s.Writers {
-		if <-done {
+	s.Redirect = true
+	go s.sendGetAckCommand(getAck)
+
+	for {
+		select {
+		case <-timeoutChan:
 			return &RESP{
 				Type:  INTEGER,
-				Value: strconv.Itoa(len(s.Writers)),
+				Value: strconv.Itoa(acks),
+			}
+		default:
+			for _, c := range s.Conns {
+				if c.Type != REPLICA {
+					continue
+				}
+				select {
+				case parsedResp := <-c.Chan:
+					fmt.Println("Received ACK from replica")
+					_, args := parsedResp.getCmdAndArgs()
+					result := s.replConfig(args, c)
+					strconv.Atoi(result.Value)
+					// replOffset, _ := strconv.Atoi(result.Value)
+					// if replOffset == s.MasterReplOffset {
+					acks++
+					if acks == numReplicas {
+						return &RESP{
+							Type:  INTEGER,
+							Value: strconv.Itoa(acks),
+						}
+					}
+					// }
+				case <-timeoutChan:
+					return &RESP{
+						Type:  INTEGER,
+						Value: strconv.Itoa(acks),
+					}
+				default:
+					continue
+				}
 			}
 		}
-		if i == numReplicas {
-			break
-		}
-		w.Write(GetAckResp())
-	}
-
-	return &RESP{
-		Type:  INTEGER,
-		Value: strconv.Itoa(len(s.Writers)),
 	}
 }
 

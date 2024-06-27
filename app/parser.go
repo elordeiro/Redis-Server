@@ -46,13 +46,10 @@ func (resp *RESP) String() string {
 	return str
 }
 
-func (resp *RESP) Len() int {
-	n := 1
-	n += len(resp.Value)
-	for _, val := range resp.Values {
-		n += len(val.Value)
-	}
-	return n
+func (resp *RESP) getCmdAndArgs() (string, []*RESP) {
+	command := strings.ToUpper(resp.Values[0].Value)
+	args := resp.Values[1:]
+	return command, args
 }
 
 // ----------------------------------------------------------------------------
@@ -96,8 +93,10 @@ func (buf *Buffer) Read() (*RESP, int, error) {
 		resp, n, err = buf.readBulkString()
 	case STRING:
 		resp, n, err = buf.readString()
-	case ERROR, INTEGER:
+	case ERROR:
 		return nil, 0, nil
+	case INTEGER:
+		resp, n, err = buf.readInteger()
 	default:
 		return nil, 0, errors.New("invalid type")
 	}
@@ -163,8 +162,6 @@ func (buf *Buffer) readBulkString() (*RESP, int, error) {
 	return resp, n + m, nil
 }
 
-// 1 3     1 13                1 11              1 6
-// * 3\r\n $ 8\r\nreplconf\r\n $ 6\r\ngetack\r\n $ 1\r\n*\r\n
 func (buf *Buffer) readString() (*RESP, int, error) {
 	data, err := buf.reader.ReadString('\n')
 	if err != nil {
@@ -177,6 +174,21 @@ func (buf *Buffer) readString() (*RESP, int, error) {
 	return &RESP{
 		Type:  STRING,
 		Value: data,
+	}, n, nil
+}
+
+func (buf *Buffer) readInteger() (*RESP, int, error) {
+	num, err := buf.reader.ReadString('\n')
+	if err != nil {
+		return &RESP{}, 0, err
+	}
+
+	n := len(num)
+
+	num = strings.TrimSuffix(num, "\r\n")
+	return &RESP{
+		Type:  INTEGER,
+		Value: num,
 	}, n, nil
 }
 
@@ -235,15 +247,31 @@ func (buf *Buffer) readRDB() (*RESP, error) {
 // ----------------------------------------------------------------------------
 
 // Serialize ------------------------------------------------------------------
-func (w *Writer) Write(resp *RESP) (int, error) {
-	bytes := resp.Marshal()
+type Writable interface {
+	*RESP | []byte
+}
 
-	n, err := w.writer.Write(bytes)
-	if err != nil {
-		return n, err
+func Write[T Writable](w *Writer, resp T) (int, error) {
+	switch r := any(resp).(type) {
+	case *RESP:
+		bytes := r.Marshal()
+
+		n, err := w.writer.Write(bytes)
+		if err != nil {
+			return n, err
+		}
+
+		return n, nil
+	case []byte:
+		n, err := w.writer.Write(r)
+		if err != nil {
+			return n, err
+		}
+
+		return n, nil
+	default:
+		return 0, nil
 	}
-
-	return n, nil
 }
 
 func (resp *RESP) Marshal() []byte {

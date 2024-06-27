@@ -27,21 +27,32 @@ type Config struct {
 const (
 	MASTER = iota
 	REPLICA
+	CLIENT
 )
 
 type ServerType int
 
+type ConnRW struct {
+	Type   ServerType
+	Conn   net.Conn
+	Reader *Buffer
+	Writer *Writer
+	Chan   chan *RESP
+}
+
 type Server struct {
 	Role             ServerType
 	Listener         net.Listener
+	Redirect         bool
+	NeedAcks         bool
 	Port             string
 	MasterHost       string
 	MasterPort       string
 	MasterReplid     string
 	MasterReplOffset int
+	ReplicaCount     int
 	MasterConn       net.Conn
-	Writers          []*Writer
-	Conn             []net.Conn
+	Conns            []*ConnRW
 	SETs             map[string]string
 	SETsMu           sync.RWMutex
 }
@@ -65,8 +76,7 @@ func NewServer(config *Config) (*Server, error) {
 		Role:             MASTER,
 		Port:             config.Port,
 		MasterReplOffset: 0,
-		Writers:          []*Writer{},
-		Conn:             []net.Conn{},
+		Conns:            []*ConnRW{},
 		SETs:             map[string]string{},
 		SETsMu:           sync.RWMutex{},
 	}
@@ -109,14 +119,13 @@ func RandStringBytes(n int) string {
 
 // ----------------------------------------------------------------------------
 
-// Accept Handshake and  Close connection -------------------------------------
+// Accept / Handshake / Close connection --------------------------------------
 func (s *Server) serverAccept() {
 	conn, err := s.Listener.Accept()
 	if err != nil {
 		fmt.Println("Error accepting connection: ", err.Error())
 		return
 	}
-	s.Conn = append(s.Conn, conn)
 
 	if s.Role == MASTER {
 		go s.handleClientConnAsMaster(conn)
@@ -138,7 +147,7 @@ func (s *Server) handShake() error {
 	writer := NewWriter(conn)
 
 	// Stage 1
-	writer.Write(PingResp())
+	Write(writer, PingResp())
 	parsedResp, _, err := resp.Read()
 	if err != nil {
 		return err
@@ -148,7 +157,7 @@ func (s *Server) handShake() error {
 	}
 
 	// Stage 2
-	writer.Write(ReplconfResp(1, s.Port))
+	Write(writer, ReplconfResp(1, s.Port))
 	parsedResp, _, err = resp.Read()
 	if err != nil {
 		return err
@@ -157,7 +166,7 @@ func (s *Server) handShake() error {
 		return errors.New("master server did not respond with OK")
 	}
 
-	writer.Write(ReplconfResp(2, s.Port))
+	Write(writer, ReplconfResp(2, s.Port))
 	parsedResp, _, err = resp.Read()
 	if err != nil {
 		return err
@@ -167,31 +176,39 @@ func (s *Server) handShake() error {
 	}
 
 	// Stage 3
-	writer.Write(Psync(0, 0))
+	Write(writer, Psync(0, 0))
 	_, err = resp.ReadFullResync()
 	if err != nil {
 		return err
 	}
 
 	s.MasterReplOffset = 0
-	go s.handleMasterConnAsReplica(resp, writer)
+	go s.handleMasterConnAsReplica(conn)
 
 	return nil
 }
 
 func (s *Server) serverClose() {
-	for _, conn := range s.Conn {
-		conn.Close()
+	for _, conn := range s.Conns {
+		conn.Conn.Close()
 	}
 }
 
 // ----------------------------------------------------------------------------
 
+/*
+Tomorrows task:
+- Figure out why I needed to use a channel when no new goroutine was created
+- Add a Read field to the ConnRW struct and use it to determine if the replica has any pending data to be read
+*/
+
 // Handle connection ----------------------------------------------------------
 func (s *Server) handleClientConnAsMaster(conn net.Conn) {
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
-
+	ch := make(chan *RESP)
+	connRW := &ConnRW{CLIENT, conn, resp, writer, ch}
+	s.Conns = append(s.Conns, connRW)
 	for {
 		parsedResp, _, err := resp.Read()
 		if err != nil {
@@ -200,10 +217,16 @@ func (s *Server) handleClientConnAsMaster(conn net.Conn) {
 			return
 		}
 
-		results := s.Handler(parsedResp, writer)
+		if s.Redirect {
+			fmt.Println("Handling client connection on redirect", parsedResp)
+			connRW.Chan <- parsedResp
+		} else {
+			fmt.Println("Handling client connection on main loop", parsedResp)
+			results := s.Handler(parsedResp, connRW)
 
-		for _, result := range results {
-			writer.Write(result)
+			for _, result := range results {
+				Write(writer, result)
+			}
 		}
 	}
 }
@@ -211,6 +234,8 @@ func (s *Server) handleClientConnAsMaster(conn net.Conn) {
 func (s *Server) handleClientConnAsReplica(conn net.Conn) {
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
+	connRW := &ConnRW{CLIENT, conn, resp, writer, nil}
+	s.Conns = append(s.Conns, connRW)
 	for {
 		parsedResp, n, err := resp.Read()
 		var results []*RESP
@@ -221,29 +246,33 @@ func (s *Server) handleClientConnAsReplica(conn net.Conn) {
 			}
 			fmt.Println(err)
 		} else {
-			results = s.Handler(parsedResp, writer)
+			results = s.Handler(parsedResp, connRW)
 			s.MasterReplOffset += n
 		}
 
 		for _, result := range results {
-			writer.Write(result)
+			Write(writer, result)
 		}
 	}
 }
 
-func (s *Server) handleMasterConnAsReplica(resp *Buffer, writer *Writer) {
+func (s *Server) handleMasterConnAsReplica(conn net.Conn) {
+	resp := NewBuffer(conn)
+	writer := NewWriter(conn)
+	connRW := &ConnRW{MASTER, conn, resp, writer, nil}
+	s.Conns = append(s.Conns, connRW)
 	for {
 		fmt.Println("Handling master connection")
 		parsedResp, n, err := resp.Read()
-		fmt.Println(parsedResp)
+		fmt.Println("Read: ", parsedResp)
 		if err != nil {
 			if err.Error() == "EOF" {
 				fmt.Println("Closing")
 				return
 			}
-			fmt.Println(err)
+			fmt.Println("Error: ", err)
 		} else {
-			s.Handler(parsedResp, writer)
+			s.Handler(parsedResp, connRW)
 			s.MasterReplOffset += n
 		}
 	}
