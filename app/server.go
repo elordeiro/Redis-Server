@@ -19,6 +19,8 @@ type Config struct {
 	IsReplica  bool
 	MasterHost string
 	MasterPort string
+	Dir        string
+	Dbfilename string
 }
 
 // ----------------------------------------------------------------------------
@@ -49,6 +51,8 @@ type Server struct {
 	MasterHost       string
 	MasterPort       string
 	MasterReplid     string
+	Dir              string
+	Dbfilename       string
 	MasterReplOffset int
 	ReplicaCount     int
 	MasterConn       net.Conn
@@ -98,6 +102,19 @@ func NewServer(config *Config) (*Server, error) {
 
 	// Set server repl id and repl offset
 	server.MasterReplid = RandStringBytes(40)
+
+	// Set Dir and Dbfilename if given
+	if config.Dir != "" {
+		server.Dir = config.Dir
+	} else {
+		server.Dir = "/tmp/redis-files"
+	}
+	if config.Dbfilename != "" {
+		server.Dbfilename = config.Dbfilename
+	} else {
+		server.Dbfilename = "dump.rbd"
+	}
+
 	return server, nil
 }
 
@@ -315,6 +332,8 @@ func parseFlags() (*Config, error) {
 	flag.StringVar(&config.Port, "port", "6379", "Server Port")
 	repl := ""
 	flag.StringVar(&repl, "replicaof", "", "Master connection <address port> to replicate")
+	flag.StringVar(&config.Dir, "dir", "", "directory to rdb file")
+	flag.StringVar(&config.Dbfilename, "dbfilename", "", "rdb file name")
 
 	flag.Parse()
 

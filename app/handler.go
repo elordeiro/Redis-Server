@@ -47,6 +47,8 @@ func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
 		return []*RESP{s.wait(args)}
 	case "COMMAND":
 		return []*RESP{commandFunc()}
+	case "CONFIG":
+		return []*RESP{s.config(args)}
 	default:
 		return []*RESP{{Type: ERROR, Value: "Unknown command " + command}}
 	}
@@ -324,15 +326,6 @@ func (s *Server) replConfig(args []*RESP, conn *ConnRW) (resp *RESP) {
 	return resp
 }
 
-func (s *Server) sendGetAckCommand(getAck []byte) {
-	for _, c := range s.Conns {
-		if c.Type != REPLICA {
-			continue
-		}
-		Write(c.Writer, getAck)
-	}
-}
-
 func (s *Server) wait(args []*RESP) *RESP {
 	if !s.NeedAcks {
 		return &RESP{Type: INTEGER, Value: strconv.Itoa(s.ReplicaCount)}
@@ -352,7 +345,14 @@ func (s *Server) wait(args []*RESP) *RESP {
 	acks := 0
 
 	s.Redirect = true
-	go s.sendGetAckCommand(getAck)
+	go func() {
+		for _, c := range s.Conns {
+			if c.Type != REPLICA {
+				continue
+			}
+			Write(c.Writer, getAck)
+		}
+	}()
 
 	for {
 		select {
@@ -392,6 +392,31 @@ func (s *Server) wait(args []*RESP) *RESP {
 				}
 			}
 		}
+	}
+}
+
+func (s *Server) config(args []*RESP) *RESP {
+	if strings.ToUpper(args[0].Value) == "GET" {
+		if strings.ToLower(args[1].Value) == "dir" {
+			return &RESP{
+				Type: ARRAY,
+				Values: []*RESP{
+					{Type: STRING, Value: "dir"},
+					{Type: STRING, Value: s.Dir},
+				},
+			}
+		}
+		return &RESP{
+			Type: ARRAY,
+			Values: []*RESP{
+				{Type: STRING, Value: "dbfilename"},
+				{Type: STRING, Value: s.Dbfilename},
+			},
+		}
+	}
+	return &RESP{
+		Type:  ERROR,
+		Value: "ERR unknown subcommand or wrong number of arguments",
 	}
 }
 
