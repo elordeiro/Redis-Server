@@ -499,7 +499,8 @@ func (s *Server) set(args []*RESP) *RESP {
 	s.SETsMu.Lock()
 	s.SETs[key] = value
 	if length > 0 {
-		s.EXP[key] = time.Now().Add(time.Duration(length) * time.Millisecond).Unix()
+		// Set expiry time in milliseconds
+		s.EXP[key] = time.Now().Add(time.Duration(length) * time.Millisecond).UnixMilli()
 	}
 	s.SETsMu.Unlock()
 
