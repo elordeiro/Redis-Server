@@ -58,6 +58,7 @@ type Server struct {
 	MasterConn       net.Conn
 	Conns            []*ConnRW
 	SETs             map[string]string
+	EXP              map[string]int64
 	SETsMu           sync.RWMutex
 }
 
@@ -82,6 +83,7 @@ func NewServer(config *Config) (*Server, error) {
 		MasterReplOffset: 0,
 		Conns:            []*ConnRW{},
 		SETs:             map[string]string{},
+		EXP:              map[string]int64{},
 		SETsMu:           sync.RWMutex{},
 	}
 

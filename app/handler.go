@@ -255,18 +255,23 @@ func info(args []*RESP, role, mrid string, mros int) *RESP {
 // ----------------------------------------------------------------------------
 
 // Server specific commands ---------------------------------------------------
-func decodeSizeBytes(r *bufio.Reader) (int, error) {
+func decodeSize(r *bufio.Reader) (int, error) {
 	bt, _ := r.ReadByte()
-	b12 := (bt & 0xC0) >> 6
-	switch b12 {
+	switch bt >> 6 {
 	case 0:
 		return int(bt), nil
 	case 1:
-		next, _ := r.ReadByte()
+		next, err := r.ReadByte()
+		if err != nil {
+			return 0, err
+		}
 		return int(bt&0x3F)<<8 | int(next), nil
 	case 2:
 		next4 := make([]byte, 4)
-		io.ReadFull(r, next4)
+		_, err := io.ReadFull(r, next4)
+		if err != nil {
+			return 0, err
+		}
 		return int(next4[0])<<24 | int(next4[1])<<16 | int(next4[2])<<8 | int(next4[3]), nil
 	default:
 		return 0, errors.New("error decoding size bytes")
@@ -282,19 +287,52 @@ func decodeString(r *bufio.Reader) (string, error) {
 		return string(str), nil
 	case bt == 0xC0:
 		next, _ := r.ReadByte()
-		return string(next), nil
+		return strconv.Itoa(int(next)), nil
 	case bt == 0xC1:
 		next2 := make([]byte, 2)
-		io.ReadFull(r, next2)
-		return string(next2), nil
+		_, err := io.ReadFull(r, next2)
+		if err != nil {
+			return "", err
+		}
+		return strconv.Itoa(int(next2[1])<<8 | int(next2[0])), nil
 	case bt == 0xC2:
 		next4 := make([]byte, 4)
-		io.ReadFull(r, next4)
-		return string(next4), nil
+		_, err := io.ReadFull(r, next4)
+		if err != nil {
+			return "", err
+		}
+		return strconv.Itoa(int(next4[3])<<24 | int(next4[2])<<16 | int(next4[1])<<8 | int(next4[0])), nil
 	case bt == 0xC3:
 		return "", errors.New("LZF compression not supported")
+	default:
+		return "", errors.New("error decoding string")
 	}
-	return "", errors.New("error decoding string")
+}
+
+func dedodeTime(r *bufio.Reader) (int64, error) {
+	byt, _ := r.ReadByte()
+	var expiryTime int64 = 0
+	if byt == 0xfc {
+		expiry := make([]byte, 8)
+		_, err := io.ReadFull(r, expiry)
+		if err != nil {
+			return 0, err
+		}
+		expiryTime =
+			int64(expiry[7])<<56 | int64(expiry[6])<<48 | int64(expiry[5])<<40 | int64(expiry[4])<<32 |
+				int64(expiry[3])<<24 | int64(expiry[2])<<16 | int64(expiry[1])<<8 | int64(expiry[0])
+	} else if byt == 0xfd {
+		expiry := make([]byte, 4)
+		_, err := io.ReadFull(r, expiry)
+		if err != nil {
+			return 0, err
+		}
+		expiryTime = int64(expiry[3])<<24 | int64(expiry[2])<<16 | int64(expiry[1])<<8 | int64(expiry[0])
+	} else {
+		r.UnreadByte()
+		return 0, nil
+	}
+	return expiryTime, nil
 }
 
 func (s *Server) decodeRDB(buf *Buffer) *RESP {
@@ -326,43 +364,58 @@ func (s *Server) decodeRDB(buf *Buffer) *RESP {
 			data.UnreadByte()
 			break
 		}
-		tmp, err := decodeString(data)
-		tmp, err = decodeString(data)
-		_ = tmp
+
+		// Metadataa Key
+		_, err = decodeString(data)
+		if err != nil {
+			return ErrResp("Error reading metadata section")
+		}
+		// Metadata Value
+		_, err = decodeString(data)
 		if err != nil {
 			return ErrResp("Error reading metadata section")
 		}
 	}
 
 	for {
-		byt, _ := data.ReadByte()
-		if byt == 0xff {
+		byt, _ := data.Peek(1)
+		if byt[0] == 0xff {
 			break
 		}
-		decodeSizeBytes(data)
+		// Database section - 0xfe
+		data.ReadByte()
+
 		// This byte is the database index
 		// TODO - Implement support for multiple databases
+		decodeSize(data)
 
 		fb, err := data.ReadByte()
 		if err != nil || fb != 0xfb {
 			return ErrResp("Error reading database section")
 		}
 
-		dbsize, err := decodeSizeBytes(data)
+		dbsize, err := decodeSize(data)
 		if err != nil {
 			return ErrResp("Error reading database section")
 		}
 
 		// Expiry size
-		_, err = decodeSizeBytes(data)
+		_, err = decodeSize(data)
 		if err != nil {
 			return ErrResp("Error reading database section")
 		}
 
-		for i := 0; i < int(dbsize); i++ {
-			data.ReadByte()
+		// Iterate over keys
+		for i := 0; i < dbsize; i++ {
+			// Expiry
+			expiryTime, err := dedodeTime(data)
+			if err != nil {
+				return ErrResp("Error reading expiry")
+			}
+
 			// This byte is the key type
 			// TODO - Implement support for different key types
+			data.ReadByte()
 
 			// Key
 			key, err := decodeString(data)
@@ -378,27 +431,16 @@ func (s *Server) decodeRDB(buf *Buffer) *RESP {
 
 			s.SETsMu.Lock()
 			s.SETs[string(key)] = string(value)
-			s.SETsMu.Unlock()
-
-			// Expiry
-			byt, _ := data.ReadByte()
-			if byt == 0xfc {
-				expiry := make([]byte, 8)
-				_, err := io.ReadFull(data, expiry)
-				if err != nil {
-					return ErrResp("Error reading expiry")
-				}
-				// TODO - Implement expiry
-			} else {
-				data.UnreadByte()
+			if expiryTime > 0 {
+				s.EXP[string(key)] = expiryTime
+				fmt.Println("Key: ", key, "Value: ", value, "Expiry: ", expiryTime)
 			}
+			s.SETsMu.Unlock()
 		}
 
-		next, _ := data.ReadByte()
-		if next == 0xff {
+		next, _ := data.Peek(1)
+		if next[0] == 0xff {
 			break
-		} else {
-			data.UnreadByte()
 		}
 	}
 	return OkResp()
@@ -456,14 +498,10 @@ func (s *Server) set(args []*RESP) *RESP {
 
 	s.SETsMu.Lock()
 	s.SETs[key] = value
-	s.SETsMu.Unlock()
 	if length > 0 {
-		time.AfterFunc(time.Duration(length)*time.Millisecond, func() {
-			s.SETsMu.Lock()
-			delete(s.SETs, key)
-			s.SETsMu.Unlock()
-		})
+		s.EXP[key] = time.Now().Add(time.Duration(length) * time.Millisecond).Unix()
 	}
+	s.SETsMu.Unlock()
 
 	return OkResp()
 }
@@ -477,6 +515,15 @@ func (s *Server) get(args []*RESP) *RESP {
 
 	s.SETsMu.Lock()
 	value, ok := s.SETs[key]
+	if exp, ok := s.EXP[key]; ok {
+		expTime := time.UnixMilli(exp)
+		if time.Now().After(expTime) {
+			delete(s.SETs, key)
+			delete(s.EXP, key)
+			s.SETsMu.Unlock()
+			return NullResp()
+		}
+	}
 	s.SETsMu.Unlock()
 
 	if !ok {
