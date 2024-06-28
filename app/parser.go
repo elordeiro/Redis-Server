@@ -52,6 +52,17 @@ func (resp *RESP) getCmdAndArgs() (string, []*RESP) {
 	return command, args
 }
 
+func ToRespArray(values []string) []*RESP {
+	resps := make([]*RESP, len(values))
+	for i := range values {
+		resps[i] = &RESP{
+			Type:  STRING,
+			Value: values[i],
+		}
+	}
+	return resps
+}
+
 // ----------------------------------------------------------------------------
 
 // Reader and Writer ----------------------------------------------------------

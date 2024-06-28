@@ -10,8 +10,20 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}/app"
+            "program": "${workspaceFolder}/app",
+            "cwd": "${workspaceFolder}",
             // "args": ["--port", "6380", "--replicaof", "localhost 6379"]
+            "args": ["--dir", ".", "--dbfilename", "dump.rdb"]
+            // "args": [
+            //     "--dir",
+            //     ".",
+            //     "--dbfilename",
+            //     "dump.rdb",
+            //     "--port",
+            //     "6380",
+            //     "--replicaof",
+            //     "localhost 6379"
+            // ]
         }
     ]
 }

@@ -104,15 +104,11 @@ func NewServer(config *Config) (*Server, error) {
 	server.MasterReplid = RandStringBytes(40)
 
 	// Set Dir and Dbfilename if given
-	if config.Dir != "" {
+	if config.Dir != "" && config.Dbfilename != "" {
 		server.Dir = config.Dir
-	} else {
-		server.Dir = "/tmp/redis-files"
-	}
-	if config.Dbfilename != "" {
 		server.Dbfilename = config.Dbfilename
-	} else {
-		server.Dbfilename = "dump.rbd"
+		server.LoadRDB()
+
 	}
 
 	return server, nil
@@ -132,6 +128,30 @@ func RandStringBytes(n int) string {
 		b[i] = letterBytes[rand.Int63()%int64(len(letterBytes))]
 	}
 	return string(b)
+}
+
+func (s *Server) LoadRDB() {
+	// Check if directory exists
+	if _, err := os.Stat(s.Dir); os.IsNotExist(err) {
+		fmt.Println("Directory does not exist")
+		return
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(s.Dir + "/" + s.Dbfilename); os.IsNotExist(err) {
+		fmt.Println("File does not exist")
+		return
+	}
+
+	// Open file and read contents
+	file, err := os.Open(s.Dir + "/" + s.Dbfilename)
+	if err != nil {
+		fmt.Println("Failed to open file")
+		return
+	}
+	defer file.Close()
+
+	s.decodeRDB(NewBuffer(file))
 }
 
 // ----------------------------------------------------------------------------
@@ -162,6 +182,7 @@ func (s *Server) handShake() error {
 
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
+	connRW := &ConnRW{MASTER, conn, resp, writer, nil}
 
 	// Stage 1
 	Write(writer, PingResp())
@@ -194,13 +215,14 @@ func (s *Server) handShake() error {
 
 	// Stage 3
 	Write(writer, Psync(0, 0))
-	_, err = resp.ReadFullResync()
+	rdb, err := resp.ReadFullResync()
 	if err != nil {
 		return err
 	}
+	s.Handler(rdb, connRW)
 
 	s.MasterReplOffset = 0
-	go s.handleMasterConnAsReplica(conn)
+	go s.handleMasterConnAsReplica(connRW)
 
 	return nil
 }
@@ -273,14 +295,11 @@ func (s *Server) handleClientConnAsReplica(conn net.Conn) {
 	}
 }
 
-func (s *Server) handleMasterConnAsReplica(conn net.Conn) {
-	resp := NewBuffer(conn)
-	writer := NewWriter(conn)
-	connRW := &ConnRW{MASTER, conn, resp, writer, nil}
+func (s *Server) handleMasterConnAsReplica(connRW *ConnRW) {
 	s.Conns = append(s.Conns, connRW)
 	for {
 		fmt.Println("Handling master connection")
-		parsedResp, n, err := resp.Read()
+		parsedResp, n, err := connRW.Reader.Read()
 		fmt.Println("Read: ", parsedResp)
 		if err != nil {
 			if err.Error() == "EOF" {

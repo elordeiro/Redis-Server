@@ -1,7 +1,11 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +18,8 @@ func (s *Server) Handler(parsedResp *RESP, conn *ConnRW) (resp []*RESP) {
 		return []*RESP{{Type: ERROR, Value: "Response type " + parsedResp.Value + " handle not yet implemented"}}
 	case ARRAY:
 		return s.handleArray(parsedResp, conn)
+	case RDB:
+		return []*RESP{s.decodeRDB(NewBuffer(bytes.NewReader([]byte(parsedResp.Value))))}
 	default:
 		return []*RESP{{Type: ERROR, Value: "Response type " + parsedResp.Value + " not recognized"}}
 	}
@@ -45,6 +51,8 @@ func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
 		return []*RESP{psync(s.MasterReplid, s.MasterReplOffset), getRDB()}
 	case "WAIT":
 		return []*RESP{s.wait(args)}
+	case "KEYS":
+		return []*RESP{s.keys(args)}
 	case "COMMAND":
 		return []*RESP{commandFunc()}
 	case "CONFIG":
@@ -85,6 +93,10 @@ func OkResp() *RESP {
 
 func NullResp() *RESP {
 	return &RESP{Type: NULL}
+}
+
+func ErrResp(err string) *RESP {
+	return &RESP{Type: ERROR, Value: err}
 }
 
 func GetAckResp() *RESP {
@@ -243,6 +255,185 @@ func info(args []*RESP, role, mrid string, mros int) *RESP {
 // ----------------------------------------------------------------------------
 
 // Server specific commands ---------------------------------------------------
+func decodeSizeBytes(r *bufio.Reader) (int, error) {
+	bt, _ := r.ReadByte()
+	b12 := (bt & 0xC0) >> 6
+	switch b12 {
+	case 0:
+		return int(bt), nil
+	case 1:
+		next, _ := r.ReadByte()
+		return int(bt&0x3F)<<8 | int(next), nil
+	case 2:
+		next4 := make([]byte, 4)
+		io.ReadFull(r, next4)
+		return int(next4[0])<<24 | int(next4[1])<<16 | int(next4[2])<<8 | int(next4[3]), nil
+	default:
+		return 0, errors.New("error decoding size bytes")
+	}
+}
+
+func decodeString(r *bufio.Reader) (string, error) {
+	bt, _ := r.ReadByte()
+	switch {
+	case bt < 0xc0:
+		str := make([]byte, int(bt))
+		io.ReadFull(r, str)
+		return string(str), nil
+	case bt == 0xC0:
+		next, _ := r.ReadByte()
+		return string(next), nil
+	case bt == 0xC1:
+		next2 := make([]byte, 2)
+		io.ReadFull(r, next2)
+		return string(next2), nil
+	case bt == 0xC2:
+		next4 := make([]byte, 4)
+		io.ReadFull(r, next4)
+		return string(next4), nil
+	case bt == 0xC3:
+		return "", errors.New("LZF compression not supported")
+	}
+	return "", errors.New("error decoding string")
+}
+
+func (s *Server) decodeRDB(buf *Buffer) *RESP {
+	data := buf.reader
+
+	// Header section
+	header := make([]byte, 9)
+	_, err := io.ReadFull(data, header)
+	if err != nil {
+		return ErrResp("Error reading RDB header")
+	}
+
+	if string(header[:5]) != "REDIS" {
+		return ErrResp("Invalid RDB file")
+	}
+
+	// version := string(header[5:])
+	// if version != "0007" {
+	// 	return ErrResp("Invalid RDB version")
+	// }
+
+	// Metadata section
+	for {
+		fa, err := data.ReadByte()
+		if err != nil {
+			return ErrResp("Error reading metadata section")
+		}
+		if fa != 0xfa {
+			data.UnreadByte()
+			break
+		}
+		tmp, err := decodeString(data)
+		tmp, err = decodeString(data)
+		_ = tmp
+		if err != nil {
+			return ErrResp("Error reading metadata section")
+		}
+	}
+
+	for {
+		byt, _ := data.ReadByte()
+		if byt == 0xff {
+			break
+		}
+		decodeSizeBytes(data)
+		// This byte is the database index
+		// TODO - Implement support for multiple databases
+
+		fb, err := data.ReadByte()
+		if err != nil || fb != 0xfb {
+			return ErrResp("Error reading database section")
+		}
+
+		dbsize, err := decodeSizeBytes(data)
+		if err != nil {
+			return ErrResp("Error reading database section")
+		}
+
+		// Expiry size
+		_, err = decodeSizeBytes(data)
+		if err != nil {
+			return ErrResp("Error reading database section")
+		}
+
+		for i := 0; i < int(dbsize); i++ {
+			data.ReadByte()
+			// This byte is the key type
+			// TODO - Implement support for different key types
+
+			// Key
+			key, err := decodeString(data)
+			if err != nil {
+				return ErrResp("Error reading key")
+			}
+
+			// Value
+			value, err := decodeString(data)
+			if err != nil {
+				return ErrResp("Error reading value")
+			}
+
+			s.SETsMu.Lock()
+			s.SETs[string(key)] = string(value)
+			s.SETsMu.Unlock()
+
+			// Expiry
+			byt, _ := data.ReadByte()
+			if byt == 0xfc {
+				expiry := make([]byte, 8)
+				_, err := io.ReadFull(data, expiry)
+				if err != nil {
+					return ErrResp("Error reading expiry")
+				}
+				// TODO - Implement expiry
+			} else {
+				data.UnreadByte()
+			}
+		}
+
+		next, _ := data.ReadByte()
+		if next == 0xff {
+			break
+		} else {
+			data.UnreadByte()
+		}
+	}
+	return OkResp()
+}
+
+func (s *Server) keys(args []*RESP) *RESP {
+	if len(args) != 1 {
+		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'keys' command"}
+	}
+
+	pattern := args[0].Value
+	keys := []string{}
+
+	if pattern == "*" {
+		s.SETsMu.Lock()
+		for k := range s.SETs {
+			keys = append(keys, k)
+		}
+		s.SETsMu.Unlock()
+	} else {
+		s.SETsMu.Lock()
+		for k := range s.SETs {
+			if strings.Contains(k, pattern) {
+				keys = append(keys, k)
+			}
+		}
+		s.SETsMu.Unlock()
+	}
+
+	return &RESP{
+		Type:   ARRAY,
+		Values: ToRespArray(keys),
+	}
+}
+
 func (s *Server) set(args []*RESP) *RESP {
 	if !(len(args) == 2 || len(args) == 4) {
 		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'set' command"}
