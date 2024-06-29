@@ -55,6 +55,8 @@ func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
 		return []*RESP{s.keys(args)}
 	case "COMMAND":
 		return []*RESP{commandFunc()}
+	case "TYPE":
+		return []*RESP{s.typecmd(args)}
 	case "CONFIG":
 		return []*RESP{s.config(args)}
 	default:
@@ -657,6 +659,25 @@ func (s *Server) config(args []*RESP) *RESP {
 		Type:  ERROR,
 		Value: "ERR unknown subcommand or wrong number of arguments",
 	}
+}
+
+func (s *Server) typecmd(args []*RESP) *RESP {
+	if len(args) == 0 {
+		return ErrResp("Err no key given to TYPE command")
+	}
+	if len(args) > 1 {
+		return ErrResp("Too many keys given to TYPE command")
+	}
+
+	s.SETsMu.Lock()
+	_, ok := s.SETs[args[0].Value]
+	s.SETsMu.Unlock()
+
+	if !ok {
+		return SimpleString("none")
+	}
+	return SimpleString("string")
+
 }
 
 // ----------------------------------------------------------------------------

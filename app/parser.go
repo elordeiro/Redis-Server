@@ -63,6 +63,13 @@ func ToRespArray(values []string) []*RESP {
 	return resps
 }
 
+func SimpleString(s string) *RESP {
+	return &RESP{
+		Type:  STRING,
+		Value: s,
+	}
+}
+
 // ----------------------------------------------------------------------------
 
 // Reader and Writer ----------------------------------------------------------
