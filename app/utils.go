@@ -6,6 +6,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // RESP related ---------------------------------------------------------------
@@ -267,6 +268,17 @@ func dedodeTime(r *bufio.Reader) (int64, error) {
 
 // Stream helpers ------------------------------------------------------------
 func (s *Server) validateEntryID(stream, key string) (int64, int, error) {
+	if key == "*" {
+		time := time.Now().UnixMilli()
+		var seq int
+		len := len(s.XADDs[stream][time])
+		if len == 0 {
+			seq = 0
+		} else {
+			seq = s.XADDs[stream][time][len-1].Seq + 1
+		}
+		return time, seq, nil
+	}
 	parts := strings.Split(key, "-")
 	if len(parts) != 2 {
 		return 0, 0, errors.New("invalid stream key")
