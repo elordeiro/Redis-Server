@@ -264,3 +264,33 @@ func dedodeTime(r *bufio.Reader) (int64, error) {
 }
 
 // ----------------------------------------------------------------------------
+
+// Stream helpers ------------------------------------------------------------
+func (s *Server) validateEntryID(stream, key string) (int64, int, error) {
+	parts := strings.Split(key, "-")
+	if len(parts) != 2 {
+		return 0, 0, errors.New("invalid stream key")
+	}
+	if parts[0] == "0" && parts[1] == "0" {
+		return 0, 0, errors.New("ERR The ID specified in XADD must be greater than 0-0")
+	}
+
+	time, _ := strconv.ParseInt(parts[0], 10, 64)
+	seq, _ := strconv.Atoi(parts[1])
+
+	if time < s.XADDsTop[stream] {
+		return 0, 0, errors.New("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+	}
+
+	len := len(s.XADDs[stream][time])
+	if len == 0 {
+		return time, seq, nil
+	}
+	if time == s.XADDsTop[stream] && seq <= s.XADDs[stream][time][len-1].Seq {
+		return 0, 0, errors.New("ERR The ID specified in XADD is equal or smaller than the target stream top item")
+	}
+
+	return time, seq, nil
+}
+
+// ----------------------------------------------------------------------------

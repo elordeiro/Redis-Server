@@ -36,7 +36,8 @@ func NewServer(config *Config) (*Server, error) {
 		SETs:             map[string]string{},
 		SETsMu:           sync.RWMutex{},
 		EXPs:             map[string]int64{},
-		XADDs:            map[string]map[string]*StreamKV{},
+		XADDs:            map[string]map[int64][]*StreamKV{},
+		XADDsTop:         map[string]int64{},
 		XADDsMu:          sync.RWMutex{},
 	}
 

@@ -334,13 +334,20 @@ func (s *Server) xadd(args []*RESP) *RESP {
 
 	streamKey := args[0].Value
 	id := args[1].Value
-	kv := StreamKV{Key: args[2].Value, Val: args[3].Value}
+	time, seq, err := s.validateEntryID(streamKey, id)
+	if err != nil {
+		return ErrResp(err.Error())
+	}
+	kv := StreamKV{Seq: seq, Key: args[2].Value, Val: args[3].Value}
 
 	s.XADDsMu.Lock()
 	if _, ok := s.XADDs[streamKey]; !ok {
-		s.XADDs[streamKey] = map[string]*StreamKV{}
+		s.XADDs[streamKey] = map[int64][]*StreamKV{}
 	}
-	s.XADDs[streamKey][id] = &kv
+	stream := s.XADDs[streamKey][time]
+	stream = append(stream, &kv)
+	s.XADDs[streamKey][time] = stream
+	s.XADDsTop[streamKey] = time
 	s.XADDsMu.Unlock()
 
 	return &RESP{Type: STRING, Value: id}
