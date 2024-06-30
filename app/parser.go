@@ -1,99 +1,12 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 
 	"io"
 	"strconv"
 	"strings"
 )
-
-const (
-	STRING  = '+'
-	ERROR   = '-'
-	INTEGER = ':'
-	BULK    = '$'
-	ARRAY   = '*'
-	NULL    = '_'
-	RDB     = '@'
-)
-
-var CRLF = []byte("\r\n")
-
-// RESP related ---------------------------------------------------------------
-type RESP struct {
-	Type   byte
-	Value  string
-	Values []*RESP
-}
-
-func (resp *RESP) String() string {
-	var str string
-	switch resp.Type {
-	case ARRAY:
-		str = "[ "
-		for i := range resp.Values {
-			str += resp.Values[i].String() + " "
-		}
-		str += "]"
-	case BULK, STRING, ERROR, INTEGER, RDB:
-		str = resp.Value
-	default:
-		return ""
-	}
-	str += " "
-	return str
-}
-
-func (resp *RESP) getCmdAndArgs() (string, []*RESP) {
-	command := strings.ToUpper(resp.Values[0].Value)
-	args := resp.Values[1:]
-	return command, args
-}
-
-func ToRespArray(values []string) []*RESP {
-	resps := make([]*RESP, len(values))
-	for i := range values {
-		resps[i] = &RESP{
-			Type:  STRING,
-			Value: values[i],
-		}
-	}
-	return resps
-}
-
-func SimpleString(s string) *RESP {
-	return &RESP{
-		Type:  STRING,
-		Value: s,
-	}
-}
-
-// ----------------------------------------------------------------------------
-
-// Reader and Writer ----------------------------------------------------------
-type Buffer struct {
-	reader *bufio.Reader
-}
-
-type Writer struct {
-	writer io.Writer
-}
-
-func NewBuffer(rd io.Reader) *Buffer {
-	return &Buffer{
-		reader: bufio.NewReader(rd),
-	}
-}
-
-func NewWriter(wr io.Writer) *Writer {
-	return &Writer{
-		writer: wr,
-	}
-}
-
-// ----------------------------------------------------------------------------
 
 // Deserialize ----------------------------------------------------------------
 func (buf *Buffer) Read() (*RESP, int, error) {

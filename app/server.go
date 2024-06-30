@@ -13,55 +13,6 @@ import (
 	"golang.org/x/exp/rand"
 )
 
-// Config flags ---------------------------------------------------------------
-type Config struct {
-	Port       string
-	IsReplica  bool
-	MasterHost string
-	MasterPort string
-	Dir        string
-	Dbfilename string
-}
-
-// ----------------------------------------------------------------------------
-
-// Server types ---------------------------------------------------------------
-const (
-	MASTER = iota
-	REPLICA
-	CLIENT
-)
-
-type ServerType int
-
-type ConnRW struct {
-	Type   ServerType
-	Conn   net.Conn
-	Reader *Buffer
-	Writer *Writer
-	Chan   chan *RESP
-}
-
-type Server struct {
-	Role             ServerType
-	Listener         net.Listener
-	Redirect         bool
-	NeedAcks         bool
-	Port             string
-	MasterHost       string
-	MasterPort       string
-	MasterReplid     string
-	Dir              string
-	Dbfilename       string
-	MasterReplOffset int
-	ReplicaCount     int
-	MasterConn       net.Conn
-	Conns            []*ConnRW
-	SETs             map[string]string
-	EXP              map[string]int64
-	SETsMu           sync.RWMutex
-}
-
 func (st ServerType) String() string {
 	switch st {
 	case MASTER:
@@ -83,8 +34,10 @@ func NewServer(config *Config) (*Server, error) {
 		MasterReplOffset: 0,
 		Conns:            []*ConnRW{},
 		SETs:             map[string]string{},
-		EXP:              map[string]int64{},
 		SETsMu:           sync.RWMutex{},
+		EXPs:             map[string]int64{},
+		XADDs:            map[string]map[string]*StreamKV{},
+		XADDsMu:          sync.RWMutex{},
 	}
 
 	// Set server port number
@@ -236,12 +189,6 @@ func (s *Server) serverClose() {
 }
 
 // ----------------------------------------------------------------------------
-
-/*
-Tomorrows task:
-- Figure out why I needed to use a channel when no new goroutine was created
-- Add a Read field to the ConnRW struct and use it to determine if the replica has any pending data to be read
-*/
 
 // Handle connection ----------------------------------------------------------
 func (s *Server) handleClientConnAsMaster(conn net.Conn) {
