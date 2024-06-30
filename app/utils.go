@@ -276,13 +276,27 @@ func (s *Server) validateEntryID(stream, key string) (int64, int, error) {
 	}
 
 	time, _ := strconv.ParseInt(parts[0], 10, 64)
-	seq, _ := strconv.Atoi(parts[1])
-
 	if time < s.XADDsTop[stream] {
 		return 0, 0, errors.New("ERR The ID specified in XADD is equal or smaller than the target stream top item")
 	}
 
 	len := len(s.XADDs[stream][time])
+	var seq int
+	if parts[1] == "*" {
+		if len == 0 {
+			if time == 0 {
+				seq = 1
+			} else {
+				seq = 0
+			}
+		} else {
+			seq = s.XADDs[stream][time][len-1].Seq + 1
+		}
+		return time, seq, nil
+	} else {
+		seq, _ = strconv.Atoi(parts[1])
+	}
+
 	if len == 0 {
 		return time, seq, nil
 	}

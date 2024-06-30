@@ -350,7 +350,7 @@ func (s *Server) xadd(args []*RESP) *RESP {
 	s.XADDsTop[streamKey] = time
 	s.XADDsMu.Unlock()
 
-	return &RESP{Type: STRING, Value: id}
+	return &RESP{Type: STRING, Value: strconv.Itoa(int(time)) + "-" + strconv.Itoa(seq)}
 }
 
 func (s *Server) replConfig(args []*RESP, conn *ConnRW) (resp *RESP) {
