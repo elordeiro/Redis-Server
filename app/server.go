@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	. "github.com/codecrafters-io/redis-starter-go/radix"
 	"golang.org/x/exp/rand"
 )
 
@@ -36,8 +37,7 @@ func NewServer(config *Config) (*Server, error) {
 		SETs:             map[string]string{},
 		SETsMu:           sync.RWMutex{},
 		EXPs:             map[string]int64{},
-		XADDs:            map[string]map[int64][]*StreamKV{},
-		XADDsTop:         map[string]int64{},
+		XADDs:            map[string]*Radix{},
 		XADDsMu:          sync.RWMutex{},
 	}
 
@@ -267,6 +267,27 @@ func (s *Server) handleMasterConnAsReplica(connRW *ConnRW) {
 // ----------------------------------------------------------------------------
 
 // Entry point and command line arguments -------------------------------------
+func parseFlags() (*Config, error) {
+	config := &Config{}
+	flag.StringVar(&config.Port, "port", "6379", "Server Port")
+	repl := ""
+	flag.StringVar(&repl, "replicaof", "", "Master connection <address port> to replicate")
+	flag.StringVar(&config.Dir, "dir", "", "directory to rdb file")
+	flag.StringVar(&config.Dbfilename, "dbfilename", "", "rdb file name")
+
+	flag.Parse()
+
+	if repl != "" {
+		config.IsReplica = true
+		ap := strings.Split(repl, " ")
+		if len(ap) != 2 {
+			return nil, errors.New("wrong argument count for -- replicaof")
+		}
+		config.MasterHost, config.MasterPort = ap[0], ap[1]
+	}
+	return config, nil
+}
+
 func main() {
 	config, err := parseFlags()
 	if err != nil {
@@ -294,25 +315,4 @@ func main() {
 	for {
 		server.serverAccept()
 	}
-}
-
-func parseFlags() (*Config, error) {
-	config := &Config{}
-	flag.StringVar(&config.Port, "port", "6379", "Server Port")
-	repl := ""
-	flag.StringVar(&repl, "replicaof", "", "Master connection <address port> to replicate")
-	flag.StringVar(&config.Dir, "dir", "", "directory to rdb file")
-	flag.StringVar(&config.Dbfilename, "dbfilename", "", "rdb file name")
-
-	flag.Parse()
-
-	if repl != "" {
-		config.IsReplica = true
-		ap := strings.Split(repl, " ")
-		if len(ap) != 2 {
-			return nil, errors.New("wrong argument count for -- replicaof")
-		}
-		config.MasterHost, config.MasterPort = ap[0], ap[1]
-	}
-	return config, nil
 }

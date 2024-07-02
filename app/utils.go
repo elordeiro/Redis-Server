@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	. "github.com/codecrafters-io/redis-starter-go/radix"
 )
 
 // RESP related ---------------------------------------------------------------
@@ -267,56 +269,75 @@ func dedodeTime(r *bufio.Reader) (int64, error) {
 // ----------------------------------------------------------------------------
 
 // Stream helpers ------------------------------------------------------------
-func (s *Server) validateEntryID(stream, key string) (int64, int, error) {
+func GetTopEntry(stream *Radix) (int64, int64) {
+	top, _ := stream.Find("0-0")
+	return top.(*StreamTop).Time, top.(*StreamTop).Seq
+}
+
+func validateEntryID(stream *Radix, key string) (int64, int64, error) {
 	if key == "*" {
 		time := time.Now().UnixMilli()
-		var seq int
-		len := len(s.XADDs[stream][time])
-		if len == 0 {
-			seq = 0
+		topTime, topSeq := GetTopEntry(stream)
+		var seq int64
+		if time == topTime {
+			seq = topSeq + 1
 		} else {
-			seq = s.XADDs[stream][time][len-1].Seq + 1
+			seq = 0
 		}
 		return time, seq, nil
 	}
+
+	if key == "0-0" {
+		return 0, 0, errors.New("ERR The ID specified in XADD must be greater than 0-0")
+	}
+
 	parts := strings.Split(key, "-")
 	if len(parts) != 2 {
 		return 0, 0, errors.New("invalid stream key")
 	}
-	if parts[0] == "0" && parts[1] == "0" {
-		return 0, 0, errors.New("ERR The ID specified in XADD must be greater than 0-0")
-	}
 
+	topTime, topSeq := GetTopEntry(stream)
 	time, _ := strconv.ParseInt(parts[0], 10, 64)
-	if time < s.XADDsTop[stream] {
+	if time < topTime {
 		return 0, 0, errors.New("ERR The ID specified in XADD is equal or smaller than the target stream top item")
 	}
 
-	len := len(s.XADDs[stream][time])
-	var seq int
+	var seq int64
 	if parts[1] == "*" {
-		if len == 0 {
-			if time == 0 {
-				seq = 1
-			} else {
-				seq = 0
-			}
+		if time == topTime {
+			seq = topSeq + 1
 		} else {
-			seq = s.XADDs[stream][time][len-1].Seq + 1
+			seq = 0
 		}
-		return time, seq, nil
 	} else {
-		seq, _ = strconv.Atoi(parts[1])
+		seq, _ = strconv.ParseInt(parts[1], 10, 64)
 	}
 
-	if len == 0 {
-		return time, seq, nil
-	}
-	if time == s.XADDsTop[stream] && seq <= s.XADDs[stream][time][len-1].Seq {
+	if time == topTime && seq <= topSeq {
 		return 0, 0, errors.New("ERR The ID specified in XADD is equal or smaller than the target stream top item")
 	}
 
 	return time, seq, nil
+}
+
+func splitEntryId(id string) (int64, int64, error) {
+	parts := strings.Split(id, "-")
+	time, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	if len(parts) == 1 {
+		return time, 0, nil
+	}
+	seq, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0, err
+	}
+	return time, seq, nil
+}
+
+func int64ToString(i int64) string {
+	return strconv.FormatInt(i, 10)
 }
 
 // ----------------------------------------------------------------------------

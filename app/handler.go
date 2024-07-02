@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	. "github.com/codecrafters-io/redis-starter-go/radix"
 )
 
 // Handler entry point --------------------------------------------------------
@@ -43,9 +45,7 @@ func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
 	case "PSYNC":
 		conn.Type = REPLICA
 		s.ReplicaCount++
-		defer func() {
-			// go s.checkOnReplica(w)
-		}()
+		go s.checkOnReplica(conn, false)
 		return []*RESP{psync(s.MasterReplid, s.MasterReplOffset), getRDB()}
 	case "WAIT":
 		return []*RESP{s.wait(args)}
@@ -57,6 +57,8 @@ func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
 		return []*RESP{s.typecmd(args)}
 	case "XADD":
 		return []*RESP{s.xadd(args)}
+	case "XRANGE":
+		return []*RESP{s.xrange(args)}
 	case "CONFIG":
 		return []*RESP{s.config(args)}
 	default:
@@ -75,14 +77,17 @@ func (s *Server) propagateCommand(resp *RESP) {
 	}
 }
 
-func (s *Server) checkOnReplica(w *Writer) {
+func (s *Server) checkOnReplica(conn *ConnRW, featureOn bool) {
+	if !featureOn {
+		return
+	}
 	getAckResp := GetAckResp().Marshal()
 	n := len(getAckResp)
 	for {
 		time.Sleep(5 * time.Second)
 		fmt.Println("Checking On Replica")
 		s.MasterReplOffset += n
-		Write(w, getAckResp)
+		Write(conn.Writer, getAckResp)
 	}
 }
 
@@ -333,24 +338,32 @@ func (s *Server) xadd(args []*RESP) *RESP {
 	}
 
 	streamKey := args[0].Value
+	stream, ok := s.XADDs[streamKey]
+	if !ok {
+		s.XADDsMu.Lock()
+		stream = NewRadix()
+		s.XADDs[streamKey] = stream
+		stream.Insert("0-0", &StreamTop{Time: 0, Seq: 0})
+		s.XADDsMu.Unlock()
+	}
+
 	id := args[1].Value
-	time, seq, err := s.validateEntryID(streamKey, id)
+	time, seq, err := validateEntryID(stream, id)
 	if err != nil {
 		return ErrResp(err.Error())
 	}
-	kv := StreamKV{Seq: seq, Key: args[2].Value, Val: args[3].Value}
 
-	s.XADDsMu.Lock()
-	if _, ok := s.XADDs[streamKey]; !ok {
-		s.XADDs[streamKey] = map[int64][]*StreamKV{}
+	entries := []*StreamKV{}
+	for i := 2; i < len(args); i += 2 {
+		entries = append(entries, &StreamKV{Key: args[i].Value, Value: args[i+1].Value})
 	}
-	stream := s.XADDs[streamKey][time]
-	stream = append(stream, &kv)
-	s.XADDs[streamKey][time] = stream
-	s.XADDsTop[streamKey] = time
-	s.XADDsMu.Unlock()
 
-	return &RESP{Type: BULK, Value: strconv.Itoa(int(time)) + "-" + strconv.Itoa(seq)}
+	timeStr := int64ToString(time) + "-" + int64ToString(seq)
+	streamEntry := &StreamEntry{Seq: seq, Entries: entries}
+	stream.Insert(timeStr, streamEntry)
+	stream.Insert("0-0", &StreamTop{Time: time, Seq: seq})
+
+	return &RESP{Type: BULK, Value: timeStr}
 }
 
 func (s *Server) replConfig(args []*RESP, conn *ConnRW) (resp *RESP) {
@@ -503,6 +516,55 @@ func (s *Server) typecmd(args []*RESP) *RESP {
 	}
 
 	return SimpleString("none")
+}
+
+func (s *Server) xrange(args []*RESP) *RESP {
+	if len(args) < 3 {
+		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'xrange' command"}
+	}
+
+	streamKey := args[0].Value
+	stream, ok := s.XADDs[streamKey]
+	if !ok {
+		return ErrResp("ERR stream not found")
+	}
+
+	startTime, startSeq, err := splitEntryId(args[1].Value)
+	if err != nil {
+		return ErrResp(err.Error())
+	}
+	endTime, endSeq, err := splitEntryId(args[2].Value)
+	if err != nil {
+		return ErrResp(err.Error())
+	}
+
+	entries := []*RESP{}
+
+	for t := startTime; t <= endTime; t++ {
+		tStr := int64ToString(t)
+		streamEntries := stream.FindAll(tStr)
+		for _, e := range streamEntries {
+			switch entry := e.(type) {
+			case *StreamEntry:
+				if t > startTime || t < endTime ||
+					(t == startTime && entry.Seq >= startSeq && t == endTime && entry.Seq <= endSeq) {
+					outter := []*RESP{}
+					outter = append(outter, &RESP{Type: STRING, Value: int64ToString(t) + "-" + int64ToString(entry.Seq)})
+					inner := make([]*RESP, 0, len(entry.Entries)*2)
+					for _, en := range entry.Entries {
+						inner = append(inner, &RESP{Type: STRING, Value: en.Key})
+						inner = append(inner, &RESP{Type: STRING, Value: en.Value})
+					}
+					outter = append(outter, &RESP{Type: ARRAY, Values: inner})
+					entries = append(entries, &RESP{Type: ARRAY, Values: outter})
+				}
+			default:
+				continue
+			}
+		}
+	}
+
+	return &RESP{Type: ARRAY, Values: entries}
 }
 
 // ----------------------------------------------------------------------------

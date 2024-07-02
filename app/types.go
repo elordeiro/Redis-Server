@@ -5,6 +5,8 @@ import (
 	"io"
 	"net"
 	"sync"
+
+	. "github.com/codecrafters-io/redis-starter-go/radix"
 )
 
 // Constants ------------------------------------------------------------------
@@ -55,10 +57,19 @@ type Config struct {
 	Dbfilename string
 }
 
+type StreamEntry struct {
+	Seq     int64
+	Entries []*StreamKV
+}
+
 type StreamKV struct {
-	Seq int
-	Key string
-	Val string
+	Key   string
+	Value string
+}
+
+type StreamTop struct {
+	Time int64
+	Seq  int64
 }
 
 type ServerType int
@@ -90,8 +101,7 @@ type Server struct {
 	SETs             map[string]string
 	SETsMu           sync.RWMutex
 	EXPs             map[string]int64
-	XADDs            map[string]map[int64][]*StreamKV
-	XADDsTop         map[string]int64
+	XADDs            map[string]*Radix
 	XADDsMu          sync.RWMutex
 }
 
