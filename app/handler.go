@@ -392,6 +392,10 @@ func (s *Server) xrange(args []*RESP) *RESP {
 	if err != nil {
 		return ErrResp(err.Error())
 	}
+	if et == math.MaxInt64 {
+		key, _, _ := stream.GetLast()
+		et, es, _ = splitEntryId(key)
+	}
 
 	entries := []*RESP{}
 

@@ -322,10 +322,13 @@ func validateEntryID(stream *radix.Radix, key string) (int64, int64, error) {
 }
 
 func splitEntryId(id string) (int64, int64, error) {
-	parts := strings.Split(id, "-")
-	if parts[0] == "" || parts[1] == "" {
+	if id == "-" {
 		return math.MinInt64, math.MinInt64, nil
 	}
+	if id == "+" {
+		return math.MaxInt64, math.MaxInt64, nil
+	}
+	parts := strings.Split(id, "-")
 	time, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
 		return 0, 0, err

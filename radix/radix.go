@@ -166,7 +166,6 @@ func (n *node) collect(values *[]interface{}) {
 	for _, edge := range n.edges {
 		edge.node.collect(values)
 	}
-
 }
 
 func (r *Radix) GetAll() []interface{} {
@@ -188,6 +187,28 @@ func (n *node) getFirst(key string) (string, interface{}, bool) {
 		label := edge.label
 		node := edge.node
 		k, v, ok := node.getFirst(key + label)
+		if ok {
+			return k, v, ok
+		}
+	}
+
+	return "", nil, false
+}
+
+func (r *Radix) GetLast() (string, interface{}, bool) {
+	return r.root.getLast("")
+}
+
+func (n *node) getLast(key string) (string, interface{}, bool) {
+	if n.isTerminal {
+		return key, n.value, true
+	}
+
+	for i := len(n.edges) - 1; i >= 0; i-- {
+		edge := n.edges[i]
+		label := edge.label
+		node := edge.node
+		k, v, ok := node.getLast(key + label)
 		if ok {
 			return k, v, ok
 		}

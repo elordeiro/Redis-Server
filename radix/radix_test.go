@@ -156,3 +156,29 @@ func TestGetFirst(t *testing.T) {
 		t.Error("Got the first value from an empty radix")
 	}
 }
+func TestGetLast(t *testing.T) {
+	root := NewRadix()
+	root.Insert("1526985054069-0", Data{Temperature: 25, Humidity: 50})
+	root.Insert("1526985054069-1", Data{Temperature: 26, Humidity: 51})
+	root.Insert("1526985054069-2", Data{Temperature: 27, Humidity: 52})
+	root.Insert("1526985054069-3", Data{Temperature: 28, Humidity: 53})
+	// Test getting the last value
+	key, value, ok := root.GetLast()
+	if !ok {
+		t.Error("Failed to get the last value")
+	}
+	expectedKey := "1526985054069-3"
+	if key != expectedKey {
+		t.Errorf("Expected key %s, but got %s", expectedKey, key)
+	}
+	expectedValue := Data{Temperature: 28, Humidity: 53}
+	if value != expectedValue {
+		t.Errorf("Expected value %v, but got %v", expectedValue, value)
+	}
+	// Test getting the last value from an empty radix
+	emptyRoot := NewRadix()
+	_, _, ok = emptyRoot.GetLast()
+	if ok {
+		t.Error("Got the last value from an empty radix")
+	}
+}
