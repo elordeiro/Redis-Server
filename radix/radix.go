@@ -27,11 +27,11 @@ func newEdge(label string, node *node) edge {
 	return edge{label, node}
 }
 
-func (r *Radix) Insert(key string, value interface{}) {
+func (r *Radix) Insert(key string, value any) {
 	r.root.insert(key, value)
 }
 
-func (n *node) insert(key string, value interface{}) {
+func (n *node) insert(key string, value any) {
 	if len(key) == 0 {
 		n.isTerminal = true
 		n.value = value
@@ -99,11 +99,11 @@ func (n *node) deleteEdge(label string) {
 	}
 }
 
-func (r *Radix) Find(key string) (interface{}, bool) {
+func (r *Radix) Find(key string) (any, bool) {
 	return r.root.find(key)
 }
 
-func (n *node) find(key string) (interface{}, bool) {
+func (n *node) find(key string) (any, bool) {
 	if len(key) == 0 {
 		return n.value, n.isTerminal
 	}
@@ -131,13 +131,13 @@ func (r *Radix) Delete(key string) {
 	r.root.delete(key, "", nil)
 }
 
-func (r *Radix) FindAll(prefix string) []interface{} {
-	values := []interface{}{}
+func (r *Radix) FindAll(prefix string) []any {
+	values := []any{}
 	r.root.findAll(prefix, &values)
 	return values
 }
 
-func (n *node) findAll(prefix string, values *[]interface{}) {
+func (n *node) findAll(prefix string, values *[]any) {
 	if n.isTerminal {
 		*values = append(*values, n.value)
 	}
@@ -158,7 +158,7 @@ func (n *node) findAll(prefix string, values *[]interface{}) {
 	}
 }
 
-func (n *node) collect(values *[]interface{}) {
+func (n *node) collect(values *[]any) {
 	if n.isTerminal {
 		*values = append(*values, n.value)
 	}
@@ -168,17 +168,17 @@ func (n *node) collect(values *[]interface{}) {
 	}
 }
 
-func (r *Radix) GetAll() []interface{} {
-	values := []interface{}{}
+func (r *Radix) GetAll() []any {
+	values := []any{}
 	r.root.collect(&values)
 	return values
 }
 
-func (r *Radix) GetFirst() (string, interface{}, bool) {
+func (r *Radix) GetFirst() (string, any, bool) {
 	return r.root.getFirst("")
 }
 
-func (n *node) getFirst(key string) (string, interface{}, bool) {
+func (n *node) getFirst(key string) (string, any, bool) {
 	if n.isTerminal {
 		return key, n.value, true
 	}
@@ -195,11 +195,11 @@ func (n *node) getFirst(key string) (string, interface{}, bool) {
 	return "", nil, false
 }
 
-func (r *Radix) GetLast() (string, interface{}, bool) {
+func (r *Radix) GetLast() (string, any, bool) {
 	return r.root.getLast("")
 }
 
-func (n *node) getLast(key string) (string, interface{}, bool) {
+func (n *node) getLast(key string) (string, any, bool) {
 	if n.isTerminal {
 		return key, n.value, true
 	}
@@ -212,6 +212,56 @@ func (n *node) getLast(key string) (string, interface{}, bool) {
 		if ok {
 			return k, v, ok
 		}
+	}
+
+	return "", nil, false
+}
+
+// GetNext finds the next node after the node with the given key.
+func (r *Radix) GetNext(key string) (string, any, bool) {
+	foundKey := false
+	var nextKey string
+	var nextVal any
+
+	// Custom function to handle finding the node with the given key.
+	var findKeyNode func(n *node, key, currentPath string) bool
+	findKeyNode = func(n *node, key, currentPath string) bool {
+		for _, edge := range n.edges {
+			label := edge.label
+			node := edge.node
+			commonPrefixLength := commonPrefixLen(key, currentPath+label)
+
+			if commonPrefixLength == len(key) && commonPrefixLength == len(currentPath+label) {
+				foundKey = true
+				continue // Continue to find the next node after finding the key.
+			}
+
+			if foundKey {
+				// If the key node has been found, set the next node's details.
+				if node.isTerminal {
+					nextKey = currentPath + label
+					nextVal = node.value
+					return true
+				} else {
+					if findKeyNode(node, key, currentPath+label) {
+						return true
+					}
+				}
+			}
+
+			if commonPrefixLength > 0 {
+				// Recursively search for the key node in the trie.
+				if findKeyNode(node, key, currentPath+label) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	// Start the search from the root.
+	if findKeyNode(r.root, key, "") {
+		return nextKey, nextVal, true
 	}
 
 	return "", nil, false

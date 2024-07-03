@@ -182,3 +182,46 @@ func TestGetLast(t *testing.T) {
 		t.Error("Got the last value from an empty radix")
 	}
 }
+func TestGetNext(t *testing.T) {
+	root := NewRadix()
+	root.Insert("1526985054069-0", Data{Temperature: 25, Humidity: 50})
+	root.Insert("1526985054069-1", Data{Temperature: 26, Humidity: 51})
+	root.Insert("1526985054069-2", Data{Temperature: 27, Humidity: 52})
+	root.Insert("1526985054069-3", Data{Temperature: 28, Humidity: 53})
+	root.Insert("1526985054070-0", Data{Temperature: 29, Humidity: 54})
+	root.Insert("1526985054070-1", Data{Temperature: 30, Humidity: 55})
+
+	// Test getting the next value
+	key, value, ok := root.GetNext("1526985054069-1")
+	if !ok {
+		t.Error("Failed to get the next value")
+	}
+	expectedKey := "1526985054069-2"
+	if key != expectedKey {
+		t.Errorf("Expected key %s, but got %s", expectedKey, key)
+	}
+	expectedValue := Data{Temperature: 27, Humidity: 52}
+	if value != expectedValue {
+		t.Errorf("Expected value %v, but got %v", expectedValue, value)
+	}
+
+	// Test getting the next value for a key with a different prefix
+	key, value, ok = root.GetNext("1526985054069-3")
+	if !ok {
+		t.Error("Failed to get the next value")
+	}
+	expectedKey = "1526985054070-0"
+	if key != expectedKey {
+		t.Errorf("Expected key %s, but got %s", expectedKey, key)
+	}
+	expectedValue = Data{Temperature: 29, Humidity: 54}
+	if value != expectedValue {
+		t.Errorf("Expected value %v, but got %v", expectedValue, value)
+	}
+
+	// Test getting the next value for the last key
+	key, value, ok = root.GetNext("1526985054070-1")
+	if ok {
+		t.Error("Got the next value for the last key")
+	}
+}

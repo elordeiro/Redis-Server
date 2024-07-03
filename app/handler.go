@@ -38,6 +38,12 @@ func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
 		return []*RESP{s.set(args)}
 	case "GET":
 		return []*RESP{s.get(args)}
+	case "XADD":
+		return []*RESP{s.xadd(args)}
+	case "XRANGE":
+		return []*RESP{s.xrange(args)}
+	case "XREAD":
+		return []*RESP{s.xread(args)}
 	case "INFO":
 		return []*RESP{info(args, s.Role.String(), s.MasterReplid, s.MasterReplOffset)}
 	case "REPLCONF":
@@ -56,10 +62,6 @@ func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
 		return []*RESP{commandFunc()}
 	case "TYPE":
 		return []*RESP{s.typecmd(args)}
-	case "XADD":
-		return []*RESP{s.xadd(args)}
-	case "XRANGE":
-		return []*RESP{s.xrange(args)}
 	case "CONFIG":
 		return []*RESP{s.config(args)}
 	default:
@@ -424,6 +426,62 @@ func (s *Server) xrange(args []*RESP) *RESP {
 	}
 
 	return &RESP{Type: ARRAY, Values: entries}
+}
+
+func (s *Server) xread(args []*RESP) *RESP {
+	if len(args) < 3 {
+		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'xrange' command"}
+	}
+	if args[0].Value != "streams" {
+		return &RESP{Type: ERROR, Value: "ERR can only read streams at the moment"}
+	}
+
+	streamKey := args[1].Value
+	stream, ok := s.XADDs[streamKey]
+	if !ok {
+		return ErrResp("ERR stream not found")
+	}
+
+	start := args[2].Value
+	start, _, _ = stream.GetNext(start)
+	// st = starttime, ss = startseq
+	st, ss, err := splitEntryId(start)
+	if err != nil {
+		return ErrResp(err.Error())
+	}
+
+	// et == endtime, es = endseq
+	last, _, _ := stream.GetLast()
+	et, es, _ := splitEntryId(last)
+
+	entries := []*RESP{}
+	entries = append(entries, SimpleString(streamKey))
+
+	for t := st; t <= et; t++ {
+		tStr := int64ToString(t)
+		sEntries := stream.FindAll(tStr)
+		for _, e := range sEntries {
+			switch entry := e.(type) {
+			case *StreamEntry:
+				if t > st || t < et ||
+					(t == st && entry.Seq >= ss && t == et && entry.Seq <= es) {
+					outter := []*RESP{}
+					outter = append(outter, SimpleString(tStr+"-"+int64ToString(entry.Seq)))
+					inner := make([]string, 0, len(entry.Entries)*2)
+					for _, en := range entry.Entries {
+						inner = append(inner, en.Key)
+						inner = append(inner, en.Value)
+					}
+					outter = append(outter, &RESP{Type: ARRAY, Values: ToRespArray(inner)})
+					entries = append(entries, &RESP{Type: ARRAY, Values: []*RESP{{Type: ARRAY, Values: outter}}})
+				}
+			default:
+				continue
+			}
+		}
+	}
+
+	return &RESP{Type: ARRAY, Values: []*RESP{{Type: ARRAY, Values: entries}}}
 }
 
 func (s *Server) replConfig(args []*RESP, conn *ConnRW) (resp *RESP) {
