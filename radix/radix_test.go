@@ -94,19 +94,65 @@ func TestFindAll(t *testing.T) {
 		Data{Temperature: 27, Humidity: 52},
 		Data{Temperature: 28, Humidity: 53},
 	}
-	for _, value := range expectedValues {
-		if !slices.Contains(values, value) {
-			t.Errorf("Expected values %v, but got %v", expectedValues, values)
-		}
-	}
-	if len(values) != len(expectedValues) {
+	if !reflect.DeepEqual(values, expectedValues) {
 		t.Errorf("Expected values %v, but got %v", expectedValues, values)
 	}
 
 	// Test finding all values with a non-existing prefix
 	values = root.FindAll("1234567890")
-	expectedValues = []interface{}{}
-	if !reflect.DeepEqual(values, expectedValues) {
+	if len(values) != 0 {
+		t.Errorf("Expected 0 values, but got %d", len(values))
+	}
+}
+func TestGetAll(t *testing.T) {
+	root := NewRadix()
+	root.Insert("1526985054069-0", Data{Temperature: 25, Humidity: 50})
+	root.Insert("1526985054069-1", Data{Temperature: 26, Humidity: 51})
+	root.Insert("1526985054069-2", Data{Temperature: 27, Humidity: 52})
+	root.Insert("1526985054069-3", Data{Temperature: 28, Humidity: 53})
+
+	expectedValues := []interface{}{
+		Data{Temperature: 25, Humidity: 50},
+		Data{Temperature: 26, Humidity: 51},
+		Data{Temperature: 27, Humidity: 52},
+		Data{Temperature: 28, Humidity: 53},
+	}
+
+	values := root.GetAll()
+
+	if !slices.Equal(values, expectedValues) {
 		t.Errorf("Expected values %v, but got %v", expectedValues, values)
+	}
+}
+func TestGetFirst(t *testing.T) {
+	root := NewRadix()
+	root.Insert("1526985054069-0", Data{Temperature: 25, Humidity: 50})
+	root.Insert("1526985054069-1", Data{Temperature: 26, Humidity: 51})
+	root.Insert("1526985054069-2", Data{Temperature: 27, Humidity: 52})
+	root.Insert("1526985054069-3", Data{Temperature: 28, Humidity: 53})
+	root.Insert("1526985054070-0", Data{Temperature: 29, Humidity: 54})
+	root.Insert("1526985054071-0", Data{Temperature: 30, Humidity: 55})
+	root.Insert("1526985054072-0", Data{Temperature: 31, Humidity: 56})
+	root.Insert("1526985054073-0", Data{Temperature: 32, Humidity: 57})
+
+	// Test getting the first value
+	key, value, ok := root.GetFirst()
+	if !ok {
+		t.Error("Failed to get the first value")
+	}
+	expectedKey := "1526985054069-0"
+	if key != expectedKey {
+		t.Errorf("Expected key %s, but got %s", expectedKey, key)
+	}
+	expectedValue := Data{Temperature: 25, Humidity: 50}
+	if value != expectedValue {
+		t.Errorf("Expected value %v, but got %v", expectedValue, value)
+	}
+
+	// Test getting the first value from an empty radix
+	emptyRoot := NewRadix()
+	_, _, ok = emptyRoot.GetFirst()
+	if ok {
+		t.Error("Got the first value from an empty radix")
 	}
 }

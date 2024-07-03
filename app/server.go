@@ -10,8 +10,9 @@ import (
 	"sync"
 	"time"
 
-	. "github.com/codecrafters-io/redis-starter-go/radix"
-	"golang.org/x/exp/rand"
+	"math/rand/v2"
+
+	"github.com/codecrafters-io/redis-starter-go/radix"
 )
 
 func (st ServerType) String() string {
@@ -37,7 +38,7 @@ func NewServer(config *Config) (*Server, error) {
 		SETs:             map[string]string{},
 		SETsMu:           sync.RWMutex{},
 		EXPs:             map[string]int64{},
-		XADDs:            map[string]*Radix{},
+		XADDs:            map[string]*radix.Radix{},
 		XADDsMu:          sync.RWMutex{},
 	}
 
@@ -74,14 +75,15 @@ func NewServer(config *Config) (*Server, error) {
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 func initRandom() {
-	rand.Seed(uint64(time.Now().UnixNano()))
+	// rand.Seed(uint64(time.Now().UnixNano()))
+	rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0))
 }
 
 func RandStringBytes(n int) string {
 	initRandom()
 	b := make([]byte, n)
 	for i := range b {
-		b[i] = letterBytes[rand.Int63()%int64(len(letterBytes))]
+		b[i] = letterBytes[rand.Int64()%int64(len(letterBytes))]
 	}
 	return string(b)
 }

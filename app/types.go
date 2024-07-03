@@ -6,7 +6,7 @@ import (
 	"net"
 	"sync"
 
-	. "github.com/codecrafters-io/redis-starter-go/radix"
+	"github.com/codecrafters-io/redis-starter-go/radix"
 )
 
 // Constants ------------------------------------------------------------------
@@ -68,8 +68,9 @@ type StreamKV struct {
 }
 
 type StreamTop struct {
-	Time int64
-	Seq  int64
+	Time  int64
+	Seq   int64
+	First *StreamEntry
 }
 
 type ServerType int
@@ -101,7 +102,7 @@ type Server struct {
 	SETs             map[string]string
 	SETsMu           sync.RWMutex
 	EXPs             map[string]int64
-	XADDs            map[string]*Radix
+	XADDs            map[string]*radix.Radix
 	XADDsMu          sync.RWMutex
 }
 

@@ -4,11 +4,12 @@ import (
 	"bufio"
 	"errors"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
 
-	. "github.com/codecrafters-io/redis-starter-go/radix"
+	"github.com/codecrafters-io/redis-starter-go/radix"
 )
 
 // RESP related ---------------------------------------------------------------
@@ -269,12 +270,12 @@ func dedodeTime(r *bufio.Reader) (int64, error) {
 // ----------------------------------------------------------------------------
 
 // Stream helpers ------------------------------------------------------------
-func GetTopEntry(stream *Radix) (int64, int64) {
+func GetTopEntry(stream *radix.Radix) (int64, int64) {
 	top, _ := stream.Find("0-0")
 	return top.(*StreamTop).Time, top.(*StreamTop).Seq
 }
 
-func validateEntryID(stream *Radix, key string) (int64, int64, error) {
+func validateEntryID(stream *radix.Radix, key string) (int64, int64, error) {
 	if key == "*" {
 		time := time.Now().UnixMilli()
 		topTime, topSeq := GetTopEntry(stream)
@@ -322,6 +323,9 @@ func validateEntryID(stream *Radix, key string) (int64, int64, error) {
 
 func splitEntryId(id string) (int64, int64, error) {
 	parts := strings.Split(id, "-")
+	if parts[0] == "" || parts[1] == "" {
+		return math.MinInt64, math.MinInt64, nil
+	}
 	time, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil {
 		return 0, 0, err

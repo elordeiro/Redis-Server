@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"time"
 
-	. "github.com/codecrafters-io/redis-starter-go/radix"
+	"github.com/codecrafters-io/redis-starter-go/radix"
 )
 
 // Handler entry point --------------------------------------------------------
@@ -341,7 +342,7 @@ func (s *Server) xadd(args []*RESP) *RESP {
 	stream, ok := s.XADDs[streamKey]
 	if !ok {
 		s.XADDsMu.Lock()
-		stream = NewRadix()
+		stream = radix.NewRadix()
 		s.XADDs[streamKey] = stream
 		stream.Insert("0-0", &StreamTop{Time: 0, Seq: 0})
 		s.XADDsMu.Unlock()
@@ -364,6 +365,61 @@ func (s *Server) xadd(args []*RESP) *RESP {
 	stream.Insert("0-0", &StreamTop{Time: time, Seq: seq})
 
 	return &RESP{Type: BULK, Value: timeStr}
+}
+
+func (s *Server) xrange(args []*RESP) *RESP {
+	if len(args) < 3 {
+		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'xrange' command"}
+	}
+
+	streamKey := args[0].Value
+	stream, ok := s.XADDs[streamKey]
+	if !ok {
+		return ErrResp("ERR stream not found")
+	}
+
+	// st = starttime, ss = startseq
+	st, ss, err := splitEntryId(args[1].Value)
+	if err != nil {
+		return ErrResp(err.Error())
+	}
+	if st == math.MinInt64 {
+		key, _, _ := stream.GetFirst()
+		st, ss, _ = splitEntryId(key)
+	}
+	// et = endtime, es = endseq
+	et, es, err := splitEntryId(args[2].Value)
+	if err != nil {
+		return ErrResp(err.Error())
+	}
+
+	entries := []*RESP{}
+
+	for t := st; t <= et; t++ {
+		tStr := int64ToString(t)
+		sEntries := stream.FindAll(tStr)
+		for _, e := range sEntries {
+			switch entry := e.(type) {
+			case *StreamEntry:
+				if t > st || t < et ||
+					(t == st && entry.Seq >= ss && t == et && entry.Seq <= es) {
+					outter := []*RESP{}
+					outter = append(outter, SimpleString(tStr+"-"+int64ToString(entry.Seq)))
+					inner := make([]string, 0, len(entry.Entries)*2)
+					for _, en := range entry.Entries {
+						inner = append(inner, en.Key)
+						inner = append(inner, en.Value)
+					}
+					outter = append(outter, &RESP{Type: ARRAY, Values: ToRespArray(inner)})
+					entries = append(entries, &RESP{Type: ARRAY, Values: outter})
+				}
+			default:
+				continue
+			}
+		}
+	}
+
+	return &RESP{Type: ARRAY, Values: entries}
 }
 
 func (s *Server) replConfig(args []*RESP, conn *ConnRW) (resp *RESP) {
@@ -516,55 +572,6 @@ func (s *Server) typecmd(args []*RESP) *RESP {
 	}
 
 	return SimpleString("none")
-}
-
-func (s *Server) xrange(args []*RESP) *RESP {
-	if len(args) < 3 {
-		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'xrange' command"}
-	}
-
-	streamKey := args[0].Value
-	stream, ok := s.XADDs[streamKey]
-	if !ok {
-		return ErrResp("ERR stream not found")
-	}
-
-	startTime, startSeq, err := splitEntryId(args[1].Value)
-	if err != nil {
-		return ErrResp(err.Error())
-	}
-	endTime, endSeq, err := splitEntryId(args[2].Value)
-	if err != nil {
-		return ErrResp(err.Error())
-	}
-
-	entries := []*RESP{}
-
-	for t := startTime; t <= endTime; t++ {
-		tStr := int64ToString(t)
-		streamEntries := stream.FindAll(tStr)
-		for _, e := range streamEntries {
-			switch entry := e.(type) {
-			case *StreamEntry:
-				if t > startTime || t < endTime ||
-					(t == startTime && entry.Seq >= startSeq && t == endTime && entry.Seq <= endSeq) {
-					outter := []*RESP{}
-					outter = append(outter, &RESP{Type: STRING, Value: int64ToString(t) + "-" + int64ToString(entry.Seq)})
-					inner := make([]*RESP, 0, len(entry.Entries)*2)
-					for _, en := range entry.Entries {
-						inner = append(inner, &RESP{Type: STRING, Value: en.Key})
-						inner = append(inner, &RESP{Type: STRING, Value: en.Value})
-					}
-					outter = append(outter, &RESP{Type: ARRAY, Values: inner})
-					entries = append(entries, &RESP{Type: ARRAY, Values: outter})
-				}
-			default:
-				continue
-			}
-		}
-	}
-
-	return &RESP{Type: ARRAY, Values: entries}
 }
 
 // ----------------------------------------------------------------------------

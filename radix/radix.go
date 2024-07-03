@@ -5,17 +5,26 @@ type Radix struct {
 }
 
 type node struct {
-	edges      map[string]*node
+	edges      []edge
 	value      any
 	isTerminal bool
 }
 
+type edge struct {
+	label string
+	node  *node
+}
+
 func NewRadix() *Radix {
-	return &Radix{&node{make(map[string]*node), nil, false}}
+	return &Radix{&node{[]edge{}, nil, false}}
 }
 
 func newNode(val any) *node {
-	return &node{make(map[string]*node), val, false}
+	return &node{[]edge{}, val, false}
+}
+
+func newEdge(label string, node *node) edge {
+	return edge{label, node}
 }
 
 func (r *Radix) Insert(key string, value interface{}) {
@@ -29,7 +38,9 @@ func (n *node) insert(key string, value interface{}) {
 		return
 	}
 
-	for label, node := range n.edges {
+	for _, edge := range n.edges {
+		label := edge.label
+		node := edge.node
 		cpl := commonPrefixLen(key, label)
 		if cpl == 0 {
 			continue
@@ -41,22 +52,22 @@ func (n *node) insert(key string, value interface{}) {
 		if cpl == len(key) {
 			newNode := newNode(value)
 			newNode.isTerminal = true
-			newNode.edges[label[cpl:]] = node
-			n.edges[label[:cpl]] = newNode
-			delete(n.edges, label)
+			newNode.edges = append(newNode.edges, newEdge(label[cpl:], node))
+			n.updateEdge(label, label[:cpl], newNode)
+			n.deleteEdge(label)
 			return
 		}
 		newNode := newNode(nil)
+		newNode.edges = append(newNode.edges, newEdge(label[cpl:], node))
 		newNode.insert(key[cpl:], value)
-		newNode.edges[label[cpl:]] = node
-		n.edges[label[:cpl]] = newNode
-		delete(n.edges, label)
+		n.updateEdge(label, label[:cpl], newNode)
+		n.deleteEdge(label)
 		return
 	}
 
 	newNode := newNode(value)
 	newNode.isTerminal = true
-	n.edges[key] = newNode
+	n.edges = append(n.edges, newEdge(key, newNode))
 }
 
 func commonPrefixLen(a, b string) int {
@@ -69,6 +80,25 @@ func commonPrefixLen(a, b string) int {
 	return minLen
 }
 
+func (n *node) updateEdge(oldLabel, newLabel string, node *node) {
+	for i, edge := range n.edges {
+		if edge.label == oldLabel {
+			n.edges[i].label = newLabel
+			n.edges[i].node = node
+			return
+		}
+	}
+}
+
+func (n *node) deleteEdge(label string) {
+	for i, edge := range n.edges {
+		if edge.label == label {
+			n.edges = append(n.edges[:i], n.edges[i+1:]...)
+			return
+		}
+	}
+}
+
 func (r *Radix) Find(key string) (interface{}, bool) {
 	return r.root.find(key)
 }
@@ -78,7 +108,9 @@ func (n *node) find(key string) (interface{}, bool) {
 		return n.value, n.isTerminal
 	}
 
-	for label, node := range n.edges {
+	for _, edge := range n.edges {
+		label := edge.label
+		node := edge.node
 		cpl := commonPrefixLen(key, label)
 		if cpl == 0 {
 			continue
@@ -110,7 +142,9 @@ func (n *node) findAll(prefix string, values *[]interface{}) {
 		*values = append(*values, n.value)
 	}
 
-	for label, node := range n.edges {
+	for _, edge := range n.edges {
+		label := edge.label
+		node := edge.node
 		clp := commonPrefixLen(prefix, label)
 		if clp == 0 {
 			continue
@@ -129,10 +163,37 @@ func (n *node) collect(values *[]interface{}) {
 		*values = append(*values, n.value)
 	}
 
-	for _, node := range n.edges {
-		node.collect(values)
+	for _, edge := range n.edges {
+		edge.node.collect(values)
 	}
 
+}
+
+func (r *Radix) GetAll() []interface{} {
+	values := []interface{}{}
+	r.root.collect(&values)
+	return values
+}
+
+func (r *Radix) GetFirst() (string, interface{}, bool) {
+	return r.root.getFirst("")
+}
+
+func (n *node) getFirst(key string) (string, interface{}, bool) {
+	if n.isTerminal {
+		return key, n.value, true
+	}
+
+	for _, edge := range n.edges {
+		label := edge.label
+		node := edge.node
+		k, v, ok := node.getFirst(key + label)
+		if ok {
+			return k, v, ok
+		}
+	}
+
+	return "", nil, false
 }
 
 func (n *node) delete(key, parentLabel string, parent *node) {
@@ -141,13 +202,15 @@ func (n *node) delete(key, parentLabel string, parent *node) {
 		n.value = nil
 		if len(n.edges) == 0 {
 			if parent != nil {
-				delete(parent.edges, parentLabel)
+				parent.deleteEdge(parentLabel)
 			}
 		}
 		return
 	}
 
-	for label, node := range n.edges {
+	for _, edge := range n.edges {
+		label := edge.label
+		node := edge.node
 		cpl := commonPrefixLen(key, label)
 		if cpl == 0 {
 			continue
@@ -157,11 +220,8 @@ func (n *node) delete(key, parentLabel string, parent *node) {
 		}
 		if len(n.edges) == 1 && !n.isTerminal {
 			if parent != nil {
-				for key := range n.edges {
-					label = key
-				}
-				parent.edges[parentLabel+label] = n.edges[label]
-				delete(parent.edges, parentLabel)
+				parent.updateEdge(parentLabel, parentLabel+label, n.edges[0].node)
+				parent.deleteEdge(parentLabel)
 			}
 		}
 		return
