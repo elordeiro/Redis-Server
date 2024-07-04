@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/codecrafters-io/redis-starter-go/queue"
 	"github.com/codecrafters-io/redis-starter-go/radix"
 )
 
@@ -68,9 +69,12 @@ type StreamKV struct {
 }
 
 type StreamTop struct {
-	Time  int64
-	Seq   int64
-	First *StreamEntry
+	Time int64
+	Seq  int64
+}
+
+type MultiProps struct {
+	Queue *queue.Queue
 }
 
 type ServerType int
@@ -107,11 +111,12 @@ type Server struct {
 	XADDsMu          sync.RWMutex
 	XADDsCh          chan bool
 	XREADsBlock      bool
+	MultiProps       *MultiProps
 }
 
 // ----------------------------------------------------------------------------
 
-// Reader and Writer constructors --------------------------------------------
+// Constructors ---------------------------------------------------------------
 func NewBuffer(rd io.Reader) *Buffer {
 	return &Buffer{
 		reader: bufio.NewReader(rd),
@@ -121,6 +126,12 @@ func NewBuffer(rd io.Reader) *Buffer {
 func NewWriter(wr io.Writer) *Writer {
 	return &Writer{
 		writer: wr,
+	}
+}
+
+func NewMultiProps() *MultiProps {
+	return &MultiProps{
+		Queue: queue.NewQueue(),
 	}
 }
 

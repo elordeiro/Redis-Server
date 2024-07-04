@@ -67,9 +67,12 @@ func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
 	case "TYPE":
 		return []*RESP{s.typecmd(args)}
 	case "MULTI":
-		return []*RESP{s.multi()}
+		go func() {
+			s.multi(conn)
+		}()
+		return []*RESP{OkResp()}
 	case "EXEC":
-		return []*RESP{s.exec()}
+		return []*RESP{s.exec(conn)}
 	case "CONFIG":
 		return []*RESP{s.config(args)}
 	case "COMMAND":
@@ -655,14 +658,34 @@ func (s *Server) wait(args []*RESP) *RESP {
 	}
 }
 
-func (s *Server) multi() *RESP {
-	return OkResp()
+func (s *Server) multi(conn *ConnRW) {
+	s.RedirectRead = true
+	for {
+		resp := <-conn.Chan
+		if resp.IsExec() {
+			break
+		}
+		s.MultiProps.Queue.Enqueue(resp)
+	}
+	s.exec(conn)
 }
 
-func (s *Server) exec() *RESP {
+func (s *Server) exec(conn *ConnRW) *RESP {
 	if !s.RedirectRead {
 		return ErrResp("ERR EXEC without MULTI")
 	}
+	q := s.MultiProps.Queue
+	response := &RESP{Type: ARRAY, Values: []*RESP{}}
+
+	for !q.IsEmpty() {
+		resp, _ := q.Dequeue()
+		results := s.Handler(resp.(*RESP), conn)
+		response.Values = append(response.Values, results...)
+	}
+
+	Write(conn.Writer, response)
+	s.RedirectRead = false
+
 	return OkResp()
 }
 

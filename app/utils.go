@@ -199,6 +199,16 @@ func (resp *RESP) IsPong() bool {
 	return true
 }
 
+func (resp *RESP) IsExec() bool {
+	if resp.Type != ARRAY {
+		return false
+	}
+	if strings.ToUpper(resp.Values[0].Value) != "EXEC" {
+		return false
+	}
+	return true
+}
+
 // ----------------------------------------------------------------------------
 
 // Decode RDB helpers --------------------------------------------------------
