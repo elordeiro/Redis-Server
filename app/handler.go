@@ -479,9 +479,13 @@ func (s *Server) xread(args []*RESP) *RESP {
 		}
 
 		start := args[i+readLen].Value
-		start, _, ok = stream.GetNext(start)
-		if !ok {
-			return NullResp()
+		if start == "$" {
+			start, _, _ = stream.GetLast()
+		} else {
+			start, _, ok = stream.GetNext(start)
+			if !ok {
+				return NullResp()
+			}
 		}
 		// st = starttime, ss = startseq
 		st, ss, err := splitEntryId(start)
