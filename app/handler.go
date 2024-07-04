@@ -68,6 +68,8 @@ func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
 		return []*RESP{s.typecmd(args)}
 	case "MULTI":
 		return []*RESP{s.multi()}
+	case "EXEC":
+		return []*RESP{s.exec()}
 	case "CONFIG":
 		return []*RESP{s.config(args)}
 	case "COMMAND":
@@ -654,6 +656,13 @@ func (s *Server) wait(args []*RESP) *RESP {
 }
 
 func (s *Server) multi() *RESP {
+	return OkResp()
+}
+
+func (s *Server) exec() *RESP {
+	if !s.RedirectRead {
+		return ErrResp("ERR EXEC without MULTI")
+	}
 	return OkResp()
 }
 
