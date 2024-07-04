@@ -216,6 +216,7 @@ func (s *Server) handleClientConnAsMaster(conn net.Conn) {
 			results := s.Handler(parsedResp, connRW)
 
 			for _, result := range results {
+				fmt.Println("Writing response", result)
 				Write(writer, result)
 			}
 		}

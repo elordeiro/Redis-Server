@@ -222,6 +222,8 @@ func (r *Radix) GetNext(key string) (string, any, bool) {
 	foundKey := false
 	var nextKey string
 	var nextVal any
+	var potentialNextKey string
+	var potentialNextVal any
 
 	// Custom function to handle finding the node with the given key.
 	var findKeyNode func(n *node, key, currentPath string) bool
@@ -229,11 +231,11 @@ func (r *Radix) GetNext(key string) (string, any, bool) {
 		for _, edge := range n.edges {
 			label := edge.label
 			node := edge.node
-			commonPrefixLength := commonPrefixLen(key, currentPath+label)
+			newPath := currentPath + label
 
-			if commonPrefixLength == len(key) && commonPrefixLength == len(currentPath+label) {
+			if newPath == key {
 				foundKey = true
-				continue // Continue to find the next node after finding the key.
+				continue
 			}
 
 			if foundKey {
@@ -247,11 +249,13 @@ func (r *Radix) GetNext(key string) (string, any, bool) {
 						return true
 					}
 				}
-			}
-
-			if commonPrefixLength > 0 {
-				// Recursively search for the key node in the trie.
-				if findKeyNode(node, key, currentPath+label) {
+			} else {
+				if node.isTerminal && newPath > key && (potentialNextKey == "" || newPath < potentialNextKey) {
+					potentialNextKey = newPath
+					potentialNextVal = node.value
+					return false
+				}
+				if findKeyNode(node, key, newPath) {
 					return true
 				}
 			}
@@ -262,6 +266,8 @@ func (r *Radix) GetNext(key string) (string, any, bool) {
 	// Start the search from the root.
 	if findKeyNode(r.root, key, "") {
 		return nextKey, nextVal, true
+	} else if potentialNextKey != "" {
+		return potentialNextKey, potentialNextVal, true
 	}
 
 	return "", nil, false

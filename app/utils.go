@@ -81,6 +81,13 @@ func SimpleString(s string) *RESP {
 	}
 }
 
+func BulkString(s string) *RESP {
+	return &RESP{
+		Type:  BULK,
+		Value: s,
+	}
+}
+
 // ----------------------------------------------------------------------------
 
 // Handshake helpers ----------------------------------------------------------

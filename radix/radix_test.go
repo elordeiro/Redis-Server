@@ -224,4 +224,22 @@ func TestGetNext(t *testing.T) {
 	if ok {
 		t.Error("Got the next value for the last key")
 	}
+
+	// Test getting the next value for a non-existing key
+	root.Insert("1526985054070-3", Data{Temperature: 31, Humidity: 56})
+	root.Insert("1526985054070-4", Data{Temperature: 32, Humidity: 57})
+	root.Insert("1526985054070-5", Data{Temperature: 33, Humidity: 58})
+	root.Insert("1526985054070-6", Data{Temperature: 34, Humidity: 59})
+	key, value, ok = root.GetNext("1526985054070-2")
+	if !ok {
+		t.Error("Failed to get the next value for a non-existing key")
+	}
+	expectedKey = "1526985054070-3"
+	if key != expectedKey {
+		t.Errorf("Expected key %s, but got %s", expectedKey, key)
+	}
+	expectedValue = Data{Temperature: 31, Humidity: 56}
+	if value != expectedValue {
+		t.Errorf("Expected value %v, but got %v", expectedValue, value)
+	}
 }

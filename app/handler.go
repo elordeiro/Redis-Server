@@ -430,58 +430,70 @@ func (s *Server) xrange(args []*RESP) *RESP {
 
 func (s *Server) xread(args []*RESP) *RESP {
 	if len(args) < 3 {
-		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'xrange' command"}
+		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'xread' command"}
 	}
 	if args[0].Value != "streams" {
 		return &RESP{Type: ERROR, Value: "ERR can only read streams at the moment"}
 	}
 
-	streamKey := args[1].Value
-	stream, ok := s.XADDs[streamKey]
-	if !ok {
-		return ErrResp("ERR stream not found")
+	args = args[1:]
+	if len(args)%2 != 0 {
+		return ErrResp("Err wrong number of arguments for 'xread' command")
 	}
 
-	start := args[2].Value
-	start, _, _ = stream.GetNext(start)
-	// st = starttime, ss = startseq
-	st, ss, err := splitEntryId(start)
-	if err != nil {
-		return ErrResp(err.Error())
-	}
+	readLen := len(args) / 2
 
-	// et == endtime, es = endseq
-	last, _, _ := stream.GetLast()
-	et, es, _ := splitEntryId(last)
+	streamLst := []*RESP{}
 
-	entries := []*RESP{}
-	entries = append(entries, SimpleString(streamKey))
-
-	for t := st; t <= et; t++ {
-		tStr := int64ToString(t)
-		sEntries := stream.FindAll(tStr)
-		for _, e := range sEntries {
-			switch entry := e.(type) {
-			case *StreamEntry:
-				if t > st || t < et ||
-					(t == st && entry.Seq >= ss && t == et && entry.Seq <= es) {
-					outter := []*RESP{}
-					outter = append(outter, SimpleString(tStr+"-"+int64ToString(entry.Seq)))
-					inner := make([]string, 0, len(entry.Entries)*2)
-					for _, en := range entry.Entries {
-						inner = append(inner, en.Key)
-						inner = append(inner, en.Value)
-					}
-					outter = append(outter, &RESP{Type: ARRAY, Values: ToRespArray(inner)})
-					entries = append(entries, &RESP{Type: ARRAY, Values: []*RESP{{Type: ARRAY, Values: outter}}})
-				}
-			default:
-				continue
-			}
+	for i := 0; i < readLen; i++ {
+		streamKey := args[i].Value
+		stream, ok := s.XADDs[streamKey]
+		if !ok {
+			return ErrResp("ERR stream not found")
 		}
+
+		start := args[i+readLen].Value
+		start, _, _ = stream.GetNext(start)
+		// st = starttime, ss = startseq
+		st, ss, err := splitEntryId(start)
+		if err != nil {
+			return ErrResp(err.Error())
+		}
+
+		// et == endtime, es = endseq
+		last, _, _ := stream.GetLast()
+		et, es, _ := splitEntryId(last)
+
+		entryLst := []*RESP{BulkString(streamKey)}
+
+		for t := st; t <= et; t++ {
+			tLst := []*RESP{}
+			tStr := int64ToString(t)
+			sEntries := stream.FindAll(tStr)
+			for _, e := range sEntries {
+				switch entry := e.(type) {
+				case *StreamEntry:
+					if t > st || t < et ||
+						(t == st && entry.Seq >= ss && t == et && entry.Seq <= es) {
+						idLst := []*RESP{BulkString(tStr + "-" + int64ToString(entry.Seq))}
+						kvLst := make([]string, 0, len(entry.Entries)*2)
+						for _, en := range entry.Entries {
+							kvLst = append(kvLst, en.Key)
+							kvLst = append(kvLst, en.Value)
+						}
+						idLst = append(idLst, &RESP{Type: ARRAY, Values: ToRespArray(kvLst)})
+						tLst = append(tLst, &RESP{Type: ARRAY, Values: idLst})
+					}
+				default:
+					continue
+				}
+			}
+			entryLst = append(entryLst, &RESP{Type: ARRAY, Values: tLst})
+		}
+		streamLst = append(streamLst, &RESP{Type: ARRAY, Values: entryLst})
 	}
 
-	return &RESP{Type: ARRAY, Values: []*RESP{{Type: ARRAY, Values: entries}}}
+	return &RESP{Type: ARRAY, Values: streamLst}
 }
 
 func (s *Server) replConfig(args []*RESP, conn *ConnRW) (resp *RESP) {
