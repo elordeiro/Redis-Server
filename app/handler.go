@@ -48,6 +48,8 @@ func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
 			Write(conn.Writer, result)
 		}()
 		return []*RESP{}
+	case "INCR":
+		return []*RESP{s.incr(args)}
 	case "INFO":
 		return []*RESP{info(args, s.Role.String(), s.MasterReplid, s.MasterReplOffset)}
 	case "REPLCONF":
@@ -62,12 +64,14 @@ func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
 		return []*RESP{s.wait(args)}
 	case "KEYS":
 		return []*RESP{s.keys(args)}
-	case "COMMAND":
-		return []*RESP{commandFunc()}
 	case "TYPE":
 		return []*RESP{s.typecmd(args)}
+	case "MULTI":
+		return []*RESP{s.multi()}
 	case "CONFIG":
 		return []*RESP{s.config(args)}
+	case "COMMAND":
+		return []*RESP{commandFunc()}
 	default:
 		return []*RESP{{Type: ERROR, Value: "Unknown command " + command}}
 	}
@@ -365,7 +369,7 @@ func (s *Server) xadd(args []*RESP) *RESP {
 		entries = append(entries, &StreamKV{Key: args[i].Value, Value: args[i+1].Value})
 	}
 
-	timeStr := int64ToString(time) + "-" + int64ToString(seq)
+	timeStr := intToStr(time) + "-" + intToStr(seq)
 	streamEntry := &StreamEntry{Seq: seq, Entries: entries}
 	stream.Insert(timeStr, streamEntry)
 	stream.Insert("0-0", &StreamTop{Time: time, Seq: seq})
@@ -410,7 +414,7 @@ func (s *Server) xrange(args []*RESP) *RESP {
 	entries := []*RESP{}
 
 	for t := st; t <= et; t++ {
-		tStr := int64ToString(t)
+		tStr := intToStr(t)
 		sEntries := stream.FindAll(tStr)
 		for _, e := range sEntries {
 			switch entry := e.(type) {
@@ -418,7 +422,7 @@ func (s *Server) xrange(args []*RESP) *RESP {
 				if t > st || t < et ||
 					(t == st && entry.Seq >= ss && t == et && entry.Seq <= es) {
 					outter := []*RESP{}
-					outter = append(outter, SimpleString(tStr+"-"+int64ToString(entry.Seq)))
+					outter = append(outter, SimpleString(tStr+"-"+intToStr(entry.Seq)))
 					inner := make([]string, 0, len(entry.Entries)*2)
 					for _, en := range entry.Entries {
 						inner = append(inner, en.Key)
@@ -501,14 +505,14 @@ func (s *Server) xread(args []*RESP) *RESP {
 
 		for t := st; t <= et; t++ {
 			tLst := []*RESP{}
-			tStr := int64ToString(t)
+			tStr := intToStr(t)
 			sEntries := stream.FindAll(tStr)
 			for _, e := range sEntries {
 				switch entry := e.(type) {
 				case *StreamEntry:
 					if t > st || t < et ||
 						(t == st && entry.Seq >= ss && t == et && entry.Seq <= es) {
-						idLst := []*RESP{BulkString(tStr + "-" + int64ToString(entry.Seq))}
+						idLst := []*RESP{BulkString(tStr + "-" + intToStr(entry.Seq))}
 						kvLst := make([]string, 0, len(entry.Entries)*2)
 						for _, en := range entry.Entries {
 							kvLst = append(kvLst, en.Key)
@@ -527,6 +531,24 @@ func (s *Server) xread(args []*RESP) *RESP {
 	}
 
 	return &RESP{Type: ARRAY, Values: streamLst}
+}
+
+func (s *Server) incr(args []*RESP) *RESP {
+	if len(args) != 1 {
+		return ErrResp("ERR wrong number of arguments for 'incr' command")
+	}
+	key := args[0].Value
+	s.SETsMu.Lock()
+	defer s.SETsMu.Unlock()
+	if val, ok := s.SETs[key]; ok {
+		val, err := strconv.ParseInt(val, 10, 64)
+		if err != nil {
+			return ErrResp(err.Error())
+		}
+		s.SETs[key] = intToStr(val + 1)
+		return Integer(val + 1)
+	}
+	return NullResp()
 }
 
 func (s *Server) replConfig(args []*RESP, conn *ConnRW) (resp *RESP) {
@@ -627,6 +649,10 @@ func (s *Server) wait(args []*RESP) *RESP {
 			}
 		}
 	}
+}
+
+func (s *Server) multi() *RESP {
+	return OkResp()
 }
 
 func (s *Server) config(args []*RESP) *RESP {

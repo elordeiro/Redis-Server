@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/radix"
+	"golang.org/x/exp/constraints"
 )
 
 // RESP related ---------------------------------------------------------------
@@ -85,6 +86,13 @@ func BulkString(s string) *RESP {
 	return &RESP{
 		Type:  BULK,
 		Value: s,
+	}
+}
+
+func Integer[T constraints.Signed](i T) *RESP {
+	return &RESP{
+		Type:  INTEGER,
+		Value: intToStr(i),
 	}
 }
 
@@ -350,8 +358,8 @@ func splitEntryId(id string) (int64, int64, error) {
 	return time, seq, nil
 }
 
-func int64ToString(i int64) string {
-	return strconv.FormatInt(i, 10)
+func intToStr[T constraints.Signed](num T) string {
+	return strconv.Itoa(int(num))
 }
 
 // ----------------------------------------------------------------------------
