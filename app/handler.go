@@ -547,6 +547,9 @@ func (s *Server) incr(args []*RESP) *RESP {
 		}
 		s.SETs[key] = intToStr(val + 1)
 		return Integer(val + 1)
+	} else {
+		s.SETs[key] = "1"
+		return Integer(1)
 	}
 	return NullResp()
 }
