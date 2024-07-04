@@ -208,7 +208,7 @@ func (s *Server) handleClientConnAsMaster(conn net.Conn) {
 			return
 		}
 
-		if s.Redirect {
+		if s.RedirectRead {
 			fmt.Println("Handling client connection on redirect", parsedResp)
 			connRW.Chan <- parsedResp
 		} else {

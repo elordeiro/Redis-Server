@@ -87,7 +87,8 @@ type ConnRW struct {
 type Server struct {
 	Role             ServerType
 	Listener         net.Listener
-	Redirect         bool
+	RedirectRead     bool
+	RedirectWrite    bool
 	NeedAcks         bool
 	Port             string
 	MasterHost       string

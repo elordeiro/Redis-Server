@@ -43,7 +43,11 @@ func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
 	case "XRANGE":
 		return []*RESP{s.xrange(args)}
 	case "XREAD":
-		return []*RESP{s.xread(args)}
+		go func() {
+			result := s.xread(args)
+			Write(conn.Writer, result)
+		}()
+		return []*RESP{}
 	case "INFO":
 		return []*RESP{info(args, s.Role.String(), s.MasterReplid, s.MasterReplOffset)}
 	case "REPLCONF":
@@ -432,6 +436,21 @@ func (s *Server) xread(args []*RESP) *RESP {
 	if len(args) < 3 {
 		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'xread' command"}
 	}
+
+	var blockTime int
+	if strings.ToUpper(args[0].Value) == "BLOCK" {
+		t, err := strconv.Atoi(args[1].Value)
+		if err != nil {
+			return ErrResp("ERR block time is not an integer or out of range")
+		}
+		blockTime = t
+		args = args[2:]
+	}
+
+	if blockTime > 0 {
+		time.Sleep(time.Duration(blockTime) * time.Millisecond)
+	}
+
 	if args[0].Value != "streams" {
 		return &RESP{Type: ERROR, Value: "ERR can only read streams at the moment"}
 	}
@@ -453,7 +472,10 @@ func (s *Server) xread(args []*RESP) *RESP {
 		}
 
 		start := args[i+readLen].Value
-		start, _, _ = stream.GetNext(start)
+		start, _, ok = stream.GetNext(start)
+		if !ok {
+			return NullResp()
+		}
 		// st = starttime, ss = startseq
 		st, ss, err := splitEntryId(start)
 		if err != nil {
@@ -534,7 +556,7 @@ func (s *Server) wait(args []*RESP) *RESP {
 	getAck := GetAckResp().Marshal()
 	defer func() {
 		s.MasterReplOffset += len(getAck)
-		s.Redirect = false
+		s.RedirectRead = false
 		s.NeedAcks = false
 		fmt.Println("")
 	}()
@@ -545,7 +567,7 @@ func (s *Server) wait(args []*RESP) *RESP {
 	timeoutChan := time.After(time.Duration(timeout) * time.Millisecond)
 	acks := 0
 
-	s.Redirect = true
+	s.RedirectRead = true
 	go func() {
 		for _, c := range s.Conns {
 			if c.Type != REPLICA {
