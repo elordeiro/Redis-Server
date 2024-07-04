@@ -370,6 +370,10 @@ func (s *Server) xadd(args []*RESP) *RESP {
 	stream.Insert(timeStr, streamEntry)
 	stream.Insert("0-0", &StreamTop{Time: time, Seq: seq})
 
+	if s.XREADsBlock {
+		s.XADDsCh <- false
+	}
+
 	return &RESP{Type: BULK, Value: timeStr}
 }
 
@@ -437,7 +441,7 @@ func (s *Server) xread(args []*RESP) *RESP {
 		return &RESP{Type: ERROR, Value: "ERR wrong number of arguments for 'xread' command"}
 	}
 
-	var blockTime int
+	blockTime := -1
 	if strings.ToUpper(args[0].Value) == "BLOCK" {
 		t, err := strconv.Atoi(args[1].Value)
 		if err != nil {
@@ -449,6 +453,9 @@ func (s *Server) xread(args []*RESP) *RESP {
 
 	if blockTime > 0 {
 		time.Sleep(time.Duration(blockTime) * time.Millisecond)
+	} else if blockTime == 0 {
+		s.XREADsBlock = true
+		s.XREADsBlock = <-s.XADDsCh
 	}
 
 	if args[0].Value != "streams" {

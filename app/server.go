@@ -40,6 +40,7 @@ func NewServer(config *Config) (*Server, error) {
 		EXPs:             map[string]int64{},
 		XADDs:            map[string]*radix.Radix{},
 		XADDsMu:          sync.RWMutex{},
+		XADDsCh:          make(chan bool, 1),
 	}
 
 	// Set server port number

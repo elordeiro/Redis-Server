@@ -105,6 +105,8 @@ type Server struct {
 	EXPs             map[string]int64
 	XADDs            map[string]*radix.Radix
 	XADDsMu          sync.RWMutex
+	XADDsCh          chan bool
+	XREADsBlock      bool
 }
 
 // ----------------------------------------------------------------------------
