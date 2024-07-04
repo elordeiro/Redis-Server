@@ -543,7 +543,7 @@ func (s *Server) incr(args []*RESP) *RESP {
 	if val, ok := s.SETs[key]; ok {
 		val, err := strconv.ParseInt(val, 10, 64)
 		if err != nil {
-			return ErrResp(err.Error())
+			return ErrResp("ERR value is not an integer or out of range")
 		}
 		s.SETs[key] = intToStr(val + 1)
 		return Integer(val + 1)
@@ -551,7 +551,6 @@ func (s *Server) incr(args []*RESP) *RESP {
 		s.SETs[key] = "1"
 		return Integer(1)
 	}
-	return NullResp()
 }
 
 func (s *Server) replConfig(args []*RESP, conn *ConnRW) (resp *RESP) {
