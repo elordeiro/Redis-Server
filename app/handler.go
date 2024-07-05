@@ -662,7 +662,7 @@ func (s *Server) wait(args []*RESP) *RESP {
 
 func (s *Server) multi(conn *ConnRW) {
 	conn.RedirectRead = true
-	q := s.MultiProps.Queue
+	q := conn.TransactionsQueue
 	for {
 		resp := <-conn.Chan
 		if resp.IsExec() {
@@ -684,7 +684,7 @@ func (s *Server) exec(conn *ConnRW) *RESP {
 	if !conn.RedirectRead {
 		return ErrResp("ERR EXEC without MULTI")
 	}
-	q := s.MultiProps.Queue
+	q := conn.TransactionsQueue
 	response := &RESP{Type: ARRAY, Values: []*RESP{}}
 
 	for !q.IsEmpty() {

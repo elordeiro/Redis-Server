@@ -12,6 +12,7 @@ import (
 
 	"math/rand/v2"
 
+	"github.com/codecrafters-io/redis-starter-go/queue"
 	"github.com/codecrafters-io/redis-starter-go/radix"
 )
 
@@ -41,7 +42,6 @@ func NewServer(config *Config) (*Server, error) {
 		XADDs:            map[string]*radix.Radix{},
 		XADDsMu:          sync.RWMutex{},
 		XADDsCh:          make(chan bool, 1),
-		MultiProps:       NewMultiProps(),
 	}
 
 	// Set server port number
@@ -142,7 +142,7 @@ func (s *Server) handShake() error {
 
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
-	connRW := &ConnRW{MASTER, conn, resp, writer, nil, false, false}
+	connRW := &ConnRW{MASTER, conn, resp, writer, nil, false, false, queue.NewQueue()}
 
 	// Stage 1
 	Write(writer, PingResp())
@@ -200,7 +200,7 @@ func (s *Server) handleClientConnAsMaster(conn net.Conn) {
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
 	ch := make(chan *RESP)
-	connRW := &ConnRW{CLIENT, conn, resp, writer, ch, false, false}
+	connRW := &ConnRW{CLIENT, conn, resp, writer, ch, false, false, queue.NewQueue()}
 	s.Conns = append(s.Conns, connRW)
 	for {
 		parsedResp, _, err := resp.Read()
@@ -228,7 +228,7 @@ func (s *Server) handleClientConnAsMaster(conn net.Conn) {
 func (s *Server) handleClientConnAsReplica(conn net.Conn) {
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
-	connRW := &ConnRW{CLIENT, conn, resp, writer, nil, false, false}
+	connRW := &ConnRW{CLIENT, conn, resp, writer, nil, false, false, queue.NewQueue()}
 	s.Conns = append(s.Conns, connRW)
 	for {
 		parsedResp, n, err := resp.Read()

@@ -73,21 +73,18 @@ type StreamTop struct {
 	Seq  int64
 }
 
-type MultiProps struct {
-	Queue *queue.Queue
-}
-
 type ServerType int
 
 // Connection reader and writer
 type ConnRW struct {
-	Type          ServerType
-	Conn          net.Conn
-	Reader        *Buffer
-	Writer        *Writer
-	Chan          chan *RESP
-	RedirectRead  bool
-	RedirectWrite bool
+	Type              ServerType
+	Conn              net.Conn
+	Reader            *Buffer
+	Writer            *Writer
+	Chan              chan *RESP
+	RedirectRead      bool
+	RedirectWrite     bool
+	TransactionsQueue *queue.Queue
 }
 
 type Server struct {
@@ -113,7 +110,6 @@ type Server struct {
 	XADDsMu          sync.RWMutex
 	XADDsCh          chan bool
 	XREADsBlock      bool
-	MultiProps       *MultiProps
 }
 
 // ----------------------------------------------------------------------------
@@ -128,12 +124,6 @@ func NewBuffer(rd io.Reader) *Buffer {
 func NewWriter(wr io.Writer) *Writer {
 	return &Writer{
 		writer: wr,
-	}
-}
-
-func NewMultiProps() *MultiProps {
-	return &MultiProps{
-		Queue: queue.NewQueue(),
 	}
 }
 
