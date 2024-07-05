@@ -64,6 +64,13 @@ func ErrResp(err string) *RESP {
 	return &RESP{Type: ERROR, Value: err}
 }
 
+func QueuedResp() *RESP {
+	return &RESP{
+		Type:  STRING,
+		Value: "QUEUED",
+	}
+}
+
 func GetAckResp() *RESP {
 	return &RESP{
 		Type: ARRAY,

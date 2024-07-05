@@ -81,19 +81,21 @@ type ServerType int
 
 // Connection reader and writer
 type ConnRW struct {
-	Type   ServerType
-	Conn   net.Conn
-	Reader *Buffer
-	Writer *Writer
-	Chan   chan *RESP
+	Type          ServerType
+	Conn          net.Conn
+	Reader        *Buffer
+	Writer        *Writer
+	Chan          chan *RESP
+	RedirectRead  bool
+	RedirectWrite bool
 }
 
 type Server struct {
 	Role             ServerType
 	Listener         net.Listener
+	NeedAcks         bool
 	RedirectRead     bool
 	RedirectWrite    bool
-	NeedAcks         bool
 	Port             string
 	MasterHost       string
 	MasterPort       string

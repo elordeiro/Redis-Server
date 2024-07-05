@@ -142,7 +142,7 @@ func (s *Server) handShake() error {
 
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
-	connRW := &ConnRW{MASTER, conn, resp, writer, nil}
+	connRW := &ConnRW{MASTER, conn, resp, writer, nil, false, false}
 
 	// Stage 1
 	Write(writer, PingResp())
@@ -200,7 +200,7 @@ func (s *Server) handleClientConnAsMaster(conn net.Conn) {
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
 	ch := make(chan *RESP)
-	connRW := &ConnRW{CLIENT, conn, resp, writer, ch}
+	connRW := &ConnRW{CLIENT, conn, resp, writer, ch, false, false}
 	s.Conns = append(s.Conns, connRW)
 	for {
 		parsedResp, _, err := resp.Read()
@@ -210,7 +210,7 @@ func (s *Server) handleClientConnAsMaster(conn net.Conn) {
 			return
 		}
 
-		if s.RedirectRead {
+		if s.RedirectRead || connRW.RedirectRead {
 			fmt.Println("Handling client connection on redirect", parsedResp)
 			connRW.Chan <- parsedResp
 		} else {
@@ -228,7 +228,7 @@ func (s *Server) handleClientConnAsMaster(conn net.Conn) {
 func (s *Server) handleClientConnAsReplica(conn net.Conn) {
 	resp := NewBuffer(conn)
 	writer := NewWriter(conn)
-	connRW := &ConnRW{CLIENT, conn, resp, writer, nil}
+	connRW := &ConnRW{CLIENT, conn, resp, writer, nil, false, false}
 	s.Conns = append(s.Conns, connRW)
 	for {
 		parsedResp, n, err := resp.Read()

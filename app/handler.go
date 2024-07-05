@@ -659,19 +659,20 @@ func (s *Server) wait(args []*RESP) *RESP {
 }
 
 func (s *Server) multi(conn *ConnRW) {
-	s.RedirectRead = true
+	conn.RedirectRead = true
 	for {
 		resp := <-conn.Chan
 		if resp.IsExec() {
 			break
 		}
 		s.MultiProps.Queue.Enqueue(resp)
+		Write(conn.Writer, QueuedResp())
 	}
 	s.exec(conn)
 }
 
 func (s *Server) exec(conn *ConnRW) *RESP {
-	if !s.RedirectRead {
+	if !conn.RedirectRead {
 		return ErrResp("ERR EXEC without MULTI")
 	}
 	q := s.MultiProps.Queue
@@ -684,7 +685,7 @@ func (s *Server) exec(conn *ConnRW) *RESP {
 	}
 
 	Write(conn.Writer, response)
-	s.RedirectRead = false
+	conn.RedirectRead = false
 
 	return OkResp()
 }
