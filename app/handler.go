@@ -73,6 +73,8 @@ func (s *Server) handleArray(resp *RESP, conn *ConnRW) []*RESP {
 		return []*RESP{OkResp()}
 	case "EXEC":
 		return []*RESP{s.exec(conn)}
+	case "DISCARD":
+		return []*RESP{s.discard()}
 	case "CONFIG":
 		return []*RESP{s.config(args)}
 	case "COMMAND":
@@ -660,12 +662,19 @@ func (s *Server) wait(args []*RESP) *RESP {
 
 func (s *Server) multi(conn *ConnRW) {
 	conn.RedirectRead = true
+	q := s.MultiProps.Queue
 	for {
 		resp := <-conn.Chan
 		if resp.IsExec() {
 			break
 		}
-		s.MultiProps.Queue.Enqueue(resp)
+		if resp.IsDiscard() {
+			q.Clear()
+			Write(conn.Writer, OkResp())
+			conn.RedirectRead = false
+			return
+		}
+		q.Enqueue(resp)
 		Write(conn.Writer, QueuedResp())
 	}
 	s.exec(conn)
@@ -688,6 +697,10 @@ func (s *Server) exec(conn *ConnRW) *RESP {
 	conn.RedirectRead = false
 
 	return OkResp()
+}
+
+func (s *Server) discard() *RESP {
+	return ErrResp("ERR DISCARD without MULTI")
 }
 
 func (s *Server) config(args []*RESP) *RESP {

@@ -216,6 +216,16 @@ func (resp *RESP) IsExec() bool {
 	return true
 }
 
+func (resp *RESP) IsDiscard() bool {
+	if resp.Type != ARRAY {
+		return false
+	}
+	if strings.ToUpper(resp.Values[0].Value) != "DISCARD" {
+		return false
+	}
+	return true
+}
+
 // ----------------------------------------------------------------------------
 
 // Decode RDB helpers --------------------------------------------------------
