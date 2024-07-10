@@ -117,6 +117,12 @@ func (s *Server) LoadRDB() {
 // ----------------------------------------------------------------------------
 
 // Accept / Handshake / Close connection --------------------------------------
+func (s *Server) serverListen() {
+	for {
+		s.serverAccept()
+	}
+}
+
 func (s *Server) serverAccept() {
 	conn, err := s.Listener.Accept()
 	if err != nil {
@@ -317,7 +323,5 @@ func main() {
 
 	fmt.Println("listening on port: " + server.Port + "...")
 
-	for {
-		server.serverAccept()
-	}
+	server.serverListen()
 }

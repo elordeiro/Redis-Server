@@ -49,6 +49,20 @@ func ToRespArray(values []string) []*RESP {
 	return resps
 }
 
+func ToResp(values ...string) *RESP {
+	resp := &RESP{
+		Type:   ARRAY,
+		Values: make([]*RESP, len(values)),
+	}
+	for i := range values {
+		resp.Values[i] = &RESP{
+			Type:  BULK,
+			Value: values[i],
+		}
+	}
+	return resp
+}
+
 // ----------------------------------------------------------------------------
 
 // Predefined responses -------------------------------------------------------
