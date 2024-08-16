@@ -6,8 +6,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/codecrafters-io/redis-starter-go/queue"
-	"github.com/codecrafters-io/redis-starter-go/radix"
+	queue "github.com/elordeiro/Redis-Server/queue"
+	radix "github.com/elordeiro/Redis-Server/radix"
 )
 
 // Constants ------------------------------------------------------------------
