@@ -1,4 +1,4 @@
-module github.com/elordeiro/Redis-Server
+module github.com/elordeiro/redis-server
 
 go 1.22
 

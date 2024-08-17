@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	radix "github.com/elordeiro/Redis-Server/radix"
+	radix "github.com/elordeiro/redis-server/radix"
 )
 
 // Handler entry point --------------------------------------------------------

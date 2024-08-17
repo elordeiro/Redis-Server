@@ -6,8 +6,8 @@ import (
 	"net"
 	"sync"
 
-	queue "github.com/elordeiro/Redis-Server/queue"
-	radix "github.com/elordeiro/Redis-Server/radix"
+	queue "github.com/elordeiro/redis-server/queue"
+	radix "github.com/elordeiro/redis-server/radix"
 )
 
 // Constants ------------------------------------------------------------------

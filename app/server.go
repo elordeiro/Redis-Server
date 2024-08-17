@@ -12,8 +12,8 @@ import (
 
 	"math/rand/v2"
 
-	queue "github.com/elordeiro/Redis-Server/queue"
-	radix "github.com/elordeiro/Redis-Server/radix"
+	queue "github.com/elordeiro/redis-server/queue"
+	radix "github.com/elordeiro/redis-server/radix"
 )
 
 func (st ServerType) String() string {
